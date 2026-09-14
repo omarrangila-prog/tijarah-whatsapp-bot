@@ -153,6 +153,10 @@ curl -X PUT http://host/api/bot-users -H "X-API-Key: $KEY" -H 'Content-Type: app
 Live: **SALE, PURCHASE, PARTY, ITEM.** Not yet built on the host: DIGITAL, SALE RETURN,
 PURCHASE RETURN, PAYMENT, RECEIVE, VENDOR, EXPENSE, ACCOUNT NAME.
 
+The voucher envelope is confirmed: a RECEIVE row Tijarah created on its own side (request #7)
+has exactly the `from`/`to`/`amount`/`remarks` shape this bot sends, so when the validator
+admits PAYMENT and RECEIVE nothing about the payload needs to change.
+
 The collection side for all twelve is finished. `HOST_REQUEST_TYPES` in
 `tijarah-request.ts` is the single place to widen once the host accepts more — everything
 else derives from it, including the refusal a person sees when they ask for one that is not
