@@ -55,6 +55,7 @@ approval request, not an entry — reject it on the approval screen.
 | `TIJARAH_QUEUE_ENABLED` | `true` polls Tijarah's queue — whatever is in it **will** be delivered.                                                                              |
 | `DRAFT_SUBMIT_ENDPOINT` | must be the endpoint that creates a record on the **approval screen**. Unset, drafts are recorded locally and nothing leaves.                        |
 | `AGENT_WHATSAPP_MOCK`   | `false` makes the bot **answer people who message it**. Separate from document delivery: with it `true`, replies are recorded and never transmitted. |
+| `TIJARAH_REQUEST_TYPES` | which create-request types Tijarah's `UpsertRequest` admits (`SALE,PURCHASE,PARTY,ITEM` today). Widen it when Tijarah does; nothing else changes.    |
 
 `requestStatus: "PENDING"` is hard-coded, not configurable. It is the single field that keeps a
 WhatsApp message from becoming an accounting entry, and it is not going in an env var.

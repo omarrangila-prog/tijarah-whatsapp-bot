@@ -86,7 +86,18 @@ function toSpec(request: TijarahRequestSpec): CreatableTypeSpec {
   };
 }
 
-export const CREATABLE_TYPES: readonly CreatableTypeSpec[] = TIJARAH_REQUESTS.map(toSpec);
+/**
+ * Every creatable type, with `submittable` read from the environment at call time.
+ *
+ * A function rather than a constant so that `TIJARAH_REQUEST_TYPES` is honoured by the process
+ * that reads it, not frozen by whichever module happened to load first.
+ */
+export function creatableTypes(): readonly CreatableTypeSpec[] {
+  return TIJARAH_REQUESTS.map(toSpec);
+}
+
+/** The list as it stood at load time. Prefer {@link creatableTypes} where `submittable` matters. */
+export const CREATABLE_TYPES: readonly CreatableTypeSpec[] = creatableTypes();
 
 /** A line on a document, named as the host names them. */
 export interface DraftLineItem {

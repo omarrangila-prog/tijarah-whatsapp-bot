@@ -157,10 +157,12 @@ The voucher envelope is confirmed: a RECEIVE row Tijarah created on its own side
 has exactly the `from`/`to`/`amount`/`remarks` shape this bot sends, so when the validator
 admits PAYMENT and RECEIVE nothing about the payload needs to change.
 
-The collection side for all twelve is finished. `HOST_REQUEST_TYPES` in
-`tijarah-request.ts` is the single place to widen once the host accepts more — everything
-else derives from it, including the refusal a person sees when they ask for one that is not
-ready. **Do not hand-edit `pending` flags; they are computed.**
+The collection side for all twelve is finished. **`TIJARAH_REQUEST_TYPES` in `.env`** is the
+single place to widen once the host accepts more — add `PAYMENT,RECEIVE` to it and restart;
+no code change, no new image. Everything derives from it, including the refusal a person
+sees when they ask for a type that is not ready. A name the specification does not know is
+ignored, so a typo cannot advertise a type the host would refuse. **Do not hand-edit
+`pending` flags; they are computed.**
 
 ### 5.2 `GetActiveRequest` returns one row today; a list is coming
 

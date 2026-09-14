@@ -234,6 +234,8 @@ services:
       # nothing leaves — which is the safe default, because these must never post an entry.
       - DRAFT_SUBMIT_ENDPOINT=${DRAFT_SUBMIT_ENDPOINT:-}
       - DRAFT_SUBMIT_AUTH_PROFILE=${DRAFT_SUBMIT_AUTH_PROFILE:-}
+      # Which create-request types the host admits. Widen here when Tijarah adds more.
+      - TIJARAH_REQUEST_TYPES=${TIJARAH_REQUEST_TYPES:-}
       # Follows an approval back: an approved request becomes a delivered document.
       - APPROVAL_POLL_ENABLED=${APPROVAL_POLL_ENABLED:-}
       - APPROVAL_POLL_SECONDS=${APPROVAL_POLL_SECONDS:-}

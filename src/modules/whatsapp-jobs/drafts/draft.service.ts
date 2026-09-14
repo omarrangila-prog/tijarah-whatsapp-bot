@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import { createLogger } from '../../../common/services/logger.service';
 import { DocumentDraft } from './document-draft.entity';
-import { CREATABLE_TYPES, findCreatableType, type DraftFieldSpec, type DraftLineItem } from './draft-schema';
+import { creatableTypes, findCreatableType, type DraftFieldSpec, type DraftLineItem } from './draft-schema';
 import { APPROVAL_SUBMISSION_PORT, type ApprovalSubmissionPort } from './approval-submission.port';
 import { normalizeWhatsAppNumber } from '../providers/whatsapp-delivery.provider';
 
@@ -40,7 +40,7 @@ export class DraftService {
   ) {}
 
   listCreatableTypes(): Array<{ documentType: string; displayName: string; hasLineItems: boolean }> {
-    return CREATABLE_TYPES.map(t => ({
+    return creatableTypes().map(t => ({
       documentType: t.documentType,
       displayName: t.displayName,
       hasLineItems: t.hasLineItems,
@@ -84,7 +84,8 @@ export class DraftService {
      * the moment it is asked for, and the ones that can are named.
      */
     if (!spec.submittable) {
-      const available = CREATABLE_TYPES.filter(t => t.submittable)
+      const available = creatableTypes()
+        .filter(t => t.submittable)
         .map(t => t.displayName)
         .join(', ');
       return {
@@ -294,7 +295,8 @@ export class DraftService {
 
     if (!findCreatableType(open.documentType)?.submittable) {
       // A draft from before the host's answer was known. Saying so beats a bare HTTP 400.
-      const available = CREATABLE_TYPES.filter(t => t.submittable)
+      const available = creatableTypes()
+        .filter(t => t.submittable)
         .map(t => t.displayName)
         .join(', ');
       return {

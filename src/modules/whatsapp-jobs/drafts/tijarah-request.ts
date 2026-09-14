@@ -41,18 +41,39 @@ export function currentStepFor(requestType: string): string {
 }
 
 /**
- * The request types `UpsertRequest` actually accepts today.
+ * The request types `UpsertRequest` accepts today, unless told otherwise.
  *
  * Not a guess and not from the specification, which lists all twelve: the host answers
  * anything else with *"RequestType must be 'SALE', 'PURCHASE', 'PARTY', or 'ITEM'."* — so this
  * is its own words. The other eight are declared below because the specification asks for them
- * and the collection side is built; they become submittable the day Tijarah adds them here.
+ * and the collection side is built.
  */
-export const HOST_REQUEST_TYPES: ReadonlySet<string> = new Set(['SALE', 'PURCHASE', 'PARTY', 'ITEM']);
+export const DEFAULT_HOST_REQUEST_TYPES: readonly string[] = ['SALE', 'PURCHASE', 'PARTY', 'ITEM'];
+
+/**
+ * What the host accepts, as deployed.
+ *
+ * `TIJARAH_REQUEST_TYPES` overrides the default so that when Tijarah widens its validator, the
+ * operator adds the new names to one line and restarts — no code change, no new image. A
+ * name not in the specification is ignored rather than trusted: a typo here must not
+ * advertise a type the host has never heard of.
+ */
+export function hostRequestTypes(env: NodeJS.ProcessEnv = process.env): ReadonlySet<string> {
+  const known = new Set(TIJARAH_REQUESTS.map(r => r.requestType));
+  const configured = (env.TIJARAH_REQUEST_TYPES ?? '')
+    .split(',')
+    .map(v => v.trim().toUpperCase())
+    .filter(v => v.length > 0);
+  const chosen = configured.length ? configured.filter(v => known.has(v)) : DEFAULT_HOST_REQUEST_TYPES;
+  return new Set(chosen);
+}
+
+/** Kept for readers of the earlier name; the live set is {@link hostRequestTypes}. */
+export const HOST_REQUEST_TYPES: ReadonlySet<string> = new Set(DEFAULT_HOST_REQUEST_TYPES);
 
 /** Whether the host will accept this type at all. */
-export function isHostSupported(spec: TijarahRequestSpec): boolean {
-  return HOST_REQUEST_TYPES.has(spec.requestType);
+export function isHostSupported(spec: TijarahRequestSpec, env: NodeJS.ProcessEnv = process.env): boolean {
+  return hostRequestTypes(env).has(spec.requestType);
 }
 
 export const TIJARAH_REQUESTS: readonly TijarahRequestSpec[] = [
@@ -111,14 +132,17 @@ export const TIJARAH_REQUESTS: readonly TijarahRequestSpec[] = [
   { documentType: 'create_item_account', displayName: 'Item Account', requestType: 'ITEM', family: 'item' },
 ];
 
-export function findRequestSpec(documentType: string): TijarahRequestSpec | undefined {
+export function findRequestSpec(
+  documentType: string,
+  env: NodeJS.ProcessEnv = process.env,
+): TijarahRequestSpec | undefined {
   const spec = TIJARAH_REQUESTS.find(r => r.documentType === documentType);
-  return spec ? { ...spec, pending: !isHostSupported(spec) } : undefined;
+  return spec ? { ...spec, pending: !isHostSupported(spec, env) } : undefined;
 }
 
 /** What a person may actually be told to create today, in the order the specification lists. */
 export function submittableRequests(): readonly TijarahRequestSpec[] {
-  return TIJARAH_REQUESTS.filter(isHostSupported);
+  return TIJARAH_REQUESTS.filter(spec => isHostSupported(spec));
 }
 
 /** A line on a document, exactly as the host names the fields. */

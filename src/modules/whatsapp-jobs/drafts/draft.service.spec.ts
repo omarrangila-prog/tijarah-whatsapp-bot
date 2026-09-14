@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm';
 import { DocumentDraft } from './document-draft.entity';
 import { DraftService, coerceDate } from './draft.service';
-import { findRequestSpec, submittableRequests } from './tijarah-request';
+import { findRequestSpec, hostRequestTypes, submittableRequests } from './tijarah-request';
 import { MockApprovalSubmissionAdapter, toSubmissionPayload } from './approval-submission.port';
 import { CREATABLE_TYPES } from './draft-schema';
 
@@ -305,5 +305,43 @@ describe('a draft that can never be submitted', () => {
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/has not enabled it yet/i);
     expect(result.message).toMatch(/Sale Invoice/);
+  });
+});
+
+describe('widening what the host accepts without a code change', () => {
+  afterEach(() => {
+    delete process.env.TIJARAH_REQUEST_TYPES;
+  });
+
+  it('is the four known types by default', () => {
+    expect([...hostRequestTypes({})].sort()).toEqual(['ITEM', 'PARTY', 'PURCHASE', 'SALE']);
+  });
+
+  it('honours TIJARAH_REQUEST_TYPES the day Tijarah admits more', () => {
+    const env = { TIJARAH_REQUEST_TYPES: 'SALE, PURCHASE, PARTY, ITEM, payment, receive' };
+    expect([...hostRequestTypes(env)].sort()).toEqual(['ITEM', 'PARTY', 'PAYMENT', 'PURCHASE', 'RECEIVE', 'SALE']);
+    expect(findRequestSpec('create_receive_voucher', env)?.pending).toBe(false);
+  });
+
+  it('ignores a name the specification has never heard of', () => {
+    // A typo must not advertise a type the host would refuse.
+    expect([...hostRequestTypes({ TIJARAH_REQUEST_TYPES: 'SALE,VOUCHER,RECIEVE' })]).toEqual(['SALE']);
+  });
+
+  it('lets a voucher be started once the setting says so', async () => {
+    process.env.TIJARAH_REQUEST_TYPES = 'SALE,PURCHASE,PARTY,ITEM,PAYMENT,RECEIVE';
+    const ds = new DataSource({
+      type: 'better-sqlite3',
+      database: ':memory:',
+      entities: [DocumentDraft],
+      synchronize: true,
+    });
+    await ds.initialize();
+    const service = new DraftService(ds.getRepository(DocumentDraft), new MockApprovalSubmissionAdapter());
+
+    const result = await service.start('923001234567', 'create_receive_voucher');
+
+    expect(result.ok).toBe(true);
+    await ds.destroy();
   });
 });
