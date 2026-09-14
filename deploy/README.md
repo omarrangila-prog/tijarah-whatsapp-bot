@@ -86,9 +86,15 @@ recorded and the person is not sent a file.
 
 ## Who the bot will serve
 
-With `BOT_REQUIRE_REGISTRATION=true`, the bot answers only numbers listed in `bot_users` —
-each mapped to the company (`sid`/`grp`) whose books that person may see. Anyone else is told
-how to get registered and nothing more. Register a number:
+With `BOT_REQUIRE_REGISTRATION=true`, the bot answers only numbers mapped to a company
+(`sid`/`grp`) whose books that person may see. A number it has not seen is looked up in
+Tijarah's own client directory (`GetBotTijarahClient`, by phone): one match is remembered
+in `bot_users` and served; a number on **more than one** account is asked _"Which business
+do you mean?"_ and answers by name or number; no match is told how to get registered and
+nothing more.
+
+So for a client whose WhatsApp number is the one on their Tijarah profile, nothing has to be
+done. To map a number by hand — a different phone, or a number the directory does not have:
 
 ```
 curl -X PUT https://your-host/api/bot-users \

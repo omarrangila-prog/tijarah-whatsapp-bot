@@ -115,9 +115,20 @@ person's message ──► WhatsAppGateway ──► AgentRuntime ──► Tool
 ### Tenancy — read this before changing anything
 
 Every report and every draft is scoped to a `sid`/`grp` pair resolved from the sender's
-phone number in `bot_users`. **There is no fallback company anywhere in the code.** An
-unregistered number is refused rather than served from a default — an earlier version had a
-default and two clients both received company 1006's books.
+phone number. **There is no fallback company anywhere in the code.** An unregistered number
+is refused rather than served from a default — an earlier version had a default and two
+clients both received company 1006's books.
+
+Resolution order (`BotUserService.lookup`):
+
+1. `bot_users` — an administrator's explicit mapping, and the cache of every directory answer
+2. `GetBotTijarahClient?cont=<phone>` — Tijarah's client directory, asked in the local form
+   (`03001234567`) then the international form. One row → remembered and served. Several →
+   the person is asked _which business_ and answers by name or position (two turns, no stored
+   state; the list is fetched again on the reply). None → refused.
+
+The directory carries no accounting year, so `aYear` defaults to the current calendar year.
+A cached row is not re-checked; `DELETE /api/bot-users/<number>` forces a fresh lookup.
 
 Register a number (ADMIN key):
 
@@ -180,7 +191,14 @@ not exist, deliberately.
 `api.tijarabooks.com/internal/pdf/…` serves any company's documents to anyone who guesses
 the path. This bot is not the exposure and cannot fix it. Tijarah should know.
 
-### 5.6 Gemini free-tier quota
+### 5.6 `GetBotTijarahClient` is not deployed yet
+
+Every path form returns 404 while `GetBotCustomers` on the same host answers 200. The lookup
+is built against the shape Tijarah documented and tested over a real socket against a
+stand-in; until the endpoint is live, a number not in `bot_users` is refused and preflight
+warns. Nothing else changes when it goes live.
+
+### 5.7 Gemini free-tier quota
 
 The key runs out after a few dozen turns (`429 … exceeded your current quota`). The runtime
 falls through to a rule-based provider and keeps working — the bot degrades from natural

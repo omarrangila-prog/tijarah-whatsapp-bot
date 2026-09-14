@@ -117,13 +117,63 @@ export class AgentRuntime {
    * Absent when the drafts module is not loaded, which keeps the agent usable without it.
    */
   /** Whether this number is mapped to a company in `bot_users`. Resolved lazily, like the drafts. */
-  private async isRegisteredBotUser(senderPhone: string): Promise<boolean> {
+  /**
+   * Whether this number may be served, settling "which business?" on the way if it can.
+   *
+   * A number on more than one Tijarah account is asked to choose, and the answer is read
+   * from the very next message — by name or by position — so the exchange is two turns, not
+   * a form. The choice list is not stored: it is fetched again on the reply, which is one
+   * more host call and no state that can go stale.
+   */
+  private async registrationGate(
+    message: NormalizedAgentMessage,
+  ): Promise<{ ok: true } | { ok: false; reply: string; reason: string }> {
+    const businessName = process.env.WHATSAPP_BUSINESS_NAME?.replace(/^"|"$/g, '') || 'the bot';
+    const contact = process.env.BOT_REGISTRATION_CONTACT?.trim();
+    let users: BotUserService;
     try {
-      const users = this.moduleRef.get(BotUserService, { strict: false });
-      return (await users.resolve(senderPhone)) !== null;
+      users = this.moduleRef.get(BotUserService, { strict: false });
     } catch {
-      return false;
+      return {
+        ok: false,
+        reply: `This number is not registered with ${businessName} yet.`,
+        reason: 'Registry unavailable',
+      };
     }
+
+    const outcome = await users.lookup(message.senderPhone);
+    if (outcome.kind === 'registered') return { ok: true };
+
+    if (outcome.kind === 'ambiguous') {
+      const chosen = message.text?.trim()
+        ? await users.choose(message.senderPhone, message.text, outcome.choices)
+        : null;
+      if (chosen) {
+        return {
+          ok: false,
+          reply: `Linked to *${chosen.displayName ?? 'your business'}*. What would you like — a ledger, a report, or a new document?`,
+          reason: 'Business chosen',
+        };
+      }
+      const list = outcome.choices
+        .map((c, i) => `${i + 1}. ${c.businessName?.trim() || `Account ${c.sid}`}`)
+        .join('\n');
+      return {
+        ok: false,
+        reply: `This number is on more than one ${businessName} account. Which business do you mean?\n${list}\n\nReply with the name or the number.`,
+        reason: 'Business not yet chosen',
+      };
+    }
+
+    return {
+      ok: false,
+      reply:
+        `This number is not registered with ${businessName} yet. ` +
+        (contact
+          ? `Please message from the number on your ${businessName} profile, or contact ${contact} to get set up.`
+          : `Please message from the number on your ${businessName} profile, or ask your administrator to add it.`),
+      reason: 'Not a registered bot user',
+    };
   }
 
   private async hasOpenDraft(senderPhone: string): Promise<boolean> {
@@ -339,14 +389,10 @@ export class AgentRuntime {
         message.senderRole !== 'admin' &&
         message.senderRole !== 'staff'
       ) {
-        const registered = await this.isRegisteredBotUser(message.senderPhone);
-        if (!registered) {
-          const contact = process.env.BOT_REGISTRATION_CONTACT?.trim();
-          const reply = plain(
-            `This number is not registered with ${process.env.WHATSAPP_BUSINESS_NAME?.replace(/^"|"$/g, '') || 'the bot'} yet.` +
-              (contact ? ` To get set up, please contact ${contact}.` : ' Please ask your administrator to add it.'),
-          );
-          return await this.finish(record, reply, 'refused', 'Not a registered bot user', startedAt);
+        const gate = await this.registrationGate(message);
+        if (!gate.ok) {
+          const outcome = gate.reason === 'Business chosen' ? 'ok' : 'refused';
+          return await this.finish(record, plain(gate.reply), outcome, gate.reason, startedAt);
         }
       }
 

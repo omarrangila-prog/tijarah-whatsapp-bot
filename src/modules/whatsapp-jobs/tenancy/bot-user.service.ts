@@ -15,6 +15,26 @@ export interface TenantContext {
   displayName: string | null;
 }
 
+/** One Tijarah client, as `GetBotTijarahClient` returns it. */
+export interface HostClient {
+  sid: number;
+  grp: string;
+  cont: string | null;
+  email: string | null;
+  businessName: string | null;
+  businessAddress?: string | null;
+}
+
+/**
+ * What asking "who is this number" can come back with.
+ *
+ * `ambiguous` is its own outcome rather than "the first one": a person whose number is on
+ * two Tijarah accounts must say which business they mean before anything is fetched, because
+ * the wrong guess shows them the other company's books.
+ */
+export type TenantLookup =
+  { kind: 'registered'; tenant: TenantContext } | { kind: 'ambiguous'; choices: HostClient[] } | { kind: 'unknown' };
+
 /** One account in the host's chart, as `GetBotCustomers` returns it. */
 export interface BotAccount {
   lcode: string;
@@ -35,17 +55,135 @@ export class BotUserService {
 
   constructor(@InjectRepository(BotUser, 'data') private readonly users: Repository<BotUser>) {}
 
-  /** The company this number belongs to, or null when it is not registered. */
+  /**
+   * The company this number belongs to, or null when nothing can be served to it.
+   *
+   * Null covers both "unknown" and "on more than one account" — either way nothing is fetched
+   * until the person is registered or has chosen. Callers that can ask the person which
+   * business they mean use {@link lookup}, which keeps the two apart.
+   */
   async resolve(phone: string): Promise<TenantContext | null> {
+    const outcome = await this.lookup(phone);
+    return outcome.kind === 'registered' ? outcome.tenant : null;
+  }
+
+  /**
+   * Who this number is, asking the host when the local table does not know.
+   *
+   * `bot_users` is consulted first — it is where an administrator's explicit mapping lives,
+   * and it is the cache of every answer the host has already given. On a miss the host's own
+   * client directory is asked by phone number; one match is remembered and served, several
+   * are handed back for the person to choose between, none is refused.
+   *
+   * A host failure is "unknown", not "try a default". A directory that is briefly down must
+   * not turn into a company being guessed.
+   */
+  async lookup(phone: string): Promise<TenantLookup> {
     const whatsAppNo = normalizeWhatsAppNumber(phone);
-    if (!whatsAppNo) return null;
+    if (!whatsAppNo) return { kind: 'unknown' };
 
     const user = await this.users.findOne({ where: { whatsAppNo, isActive: true } });
-    if (!user) {
-      this.logger.warn(`${whatsAppNo} is not registered to a company — refusing rather than guessing one`);
-      return null;
+    if (user) {
+      return {
+        kind: 'registered',
+        tenant: { whatsAppNo, sid: user.sid, grp: user.grp, aYear: user.aYear, displayName: user.displayName },
+      };
     }
-    return { whatsAppNo, sid: user.sid, grp: user.grp, aYear: user.aYear, displayName: user.displayName };
+
+    const clients = await this.findHostClients(whatsAppNo);
+    if (clients.length === 1) {
+      const saved = await this.remember(whatsAppNo, clients[0]);
+      this.logger.log(
+        `${whatsAppNo} resolved from the host directory → ${saved.sid}/${saved.grp} (${saved.displayName ?? '-'})`,
+      );
+      return {
+        kind: 'registered',
+        tenant: { whatsAppNo, sid: saved.sid, grp: saved.grp, aYear: saved.aYear, displayName: saved.displayName },
+      };
+    }
+    if (clients.length > 1) {
+      this.logger.log(`${whatsAppNo} is on ${clients.length} Tijarah accounts — asking which`);
+      return { kind: 'ambiguous', choices: clients };
+    }
+
+    this.logger.warn(`${whatsAppNo} is not registered to a company — refusing rather than guessing one`);
+    return { kind: 'unknown' };
+  }
+
+  /**
+   * Settles an ambiguous number on the business the person named.
+   *
+   * Matched on the business name the host gave, case-insensitively and by containment, or on
+   * its position in the list they were shown ("1", "2"). One match is remembered; zero or
+   * several is null and the person is asked again.
+   */
+  async choose(phone: string, answer: string, choices: HostClient[]): Promise<TenantContext | null> {
+    const whatsAppNo = normalizeWhatsAppNumber(phone);
+    const wanted = answer.trim().toLowerCase();
+    if (!whatsAppNo || !wanted) return null;
+
+    const byPosition = /^\d{1,2}$/.test(wanted) ? choices[Number(wanted) - 1] : undefined;
+    const byName = choices.filter(c => (c.businessName ?? '').toLowerCase().includes(wanted));
+    const picked = byPosition ?? (byName.length === 1 ? byName[0] : undefined);
+    if (!picked) return null;
+
+    const saved = await this.remember(whatsAppNo, picked);
+    return { whatsAppNo, sid: saved.sid, grp: saved.grp, aYear: saved.aYear, displayName: saved.displayName };
+  }
+
+  /**
+   * The host's client directory, by phone number.
+   *
+   * Asked in the local form first (`03001234567`, which is how the directory stores numbers)
+   * and in the international form only if that finds nothing — one directory, two spellings
+   * of the same phone, and the person should not be refused over a country code.
+   */
+  private async findHostClients(whatsAppNo: string): Promise<HostClient[]> {
+    const forms = [toLocalForm(whatsAppNo), whatsAppNo].filter((v, i, all) => all.indexOf(v) === i);
+    for (const cont of forms) {
+      const rows = await this.queryHostClients({ cont });
+      if (rows.length) return rows;
+    }
+    return [];
+  }
+
+  private async queryHostClients(by: { cont?: string; email?: string; bname?: string }): Promise<HostClient[]> {
+    const base = (process.env.TIJARAH_QUEUE_BASE_URL ?? 'https://api.tijarabooks.com/BotConnectApi').replace(/\/$/, '');
+    // The host treats "0" as "not filtering on this one".
+    const url =
+      `${base}/GetBotTijarahClient?cont=${encodeURIComponent(by.cont ?? '0')}` +
+      `&email=${encodeURIComponent(by.email ?? '0')}&bname=${encodeURIComponent(by.bname ?? '0')}`;
+    try {
+      const res = await request(url, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        headersTimeout: 30_000,
+        bodyTimeout: 30_000,
+      });
+      if (res.statusCode >= 400) {
+        this.logger.warn(`GetBotTijarahClient responded ${res.statusCode}`);
+        return [];
+      }
+      const body = (await res.body.json()) as { data?: unknown };
+      return Array.isArray(body?.data) ? body.data.filter(isHostClient) : [];
+    } catch (error) {
+      this.logger.warn(`could not read the client directory: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  /** Caches a host answer as a bot_users row, so the directory is asked once per number. */
+  private async remember(whatsAppNo: string, client: HostClient): Promise<BotUser> {
+    const saved = await this.upsert({
+      whatsAppNo,
+      sid: client.sid,
+      grp: client.grp,
+      // The directory carries no accounting year; the current calendar year is the default.
+      aYear: String(new Date().getFullYear()),
+      displayName: client.businessName?.trim() || null,
+    });
+    if (!saved) throw new Error(`could not remember ${whatsAppNo}`);
+    return saved;
   }
 
   /** The parameters a document endpoint needs, from a resolved client. */
@@ -153,4 +291,18 @@ export class BotUserService {
     const accounts = await this.fetchAccounts(tenant, actHead);
     return accounts.some(account => account.lcode?.trim().toUpperCase() === wanted);
   }
+}
+
+/** `923001234567` → `03001234567`, the form the host's directory stores. */
+export function toLocalForm(whatsAppNo: string): string {
+  const cc = (process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? '92').replace(/\D/g, '');
+  return whatsAppNo.startsWith(cc) && whatsAppNo.length > cc.length + 6
+    ? `0${whatsAppNo.slice(cc.length)}`
+    : whatsAppNo;
+}
+
+function isHostClient(row: unknown): row is HostClient {
+  if (typeof row !== 'object' || row === null) return false;
+  const r = row as Record<string, unknown>;
+  return Number.isFinite(Number(r.sid)) && Number(r.sid) > 0 && typeof r.grp === 'string' && r.grp.trim().length > 0;
 }

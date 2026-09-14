@@ -60,6 +60,12 @@ rm -f /tmp/preflight.pdf
 if [ "${TIJARAH_QUEUE_ENABLED:-false}" = "true" ]; then
   Q=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${TIJARAH_QUEUE_BASE_URL}/GetPendingBotInvoices" 2>/dev/null || echo 000)
   [ "$Q" = "200" ] && ok "host job queue reachable" || bad "host job queue returned HTTP $Q"
+
+  # The client directory: how a number that is not in bot_users gets its company. Without it
+  # every new client is "not registered" and has to be added by hand.
+  C=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "${TIJARAH_QUEUE_BASE_URL}/GetBotTijarahClient?cont=0&email=0&bname=0" 2>/dev/null || echo 000)
+  [ "$C" = "200" ] && ok "host client directory reachable" \
+    || warn "GetBotTijarahClient returned HTTP $C — new numbers must be registered by hand until it is up"
 fi
 
 if [ -n "${DRAFT_SUBMIT_ENDPOINT:-}" ]; then

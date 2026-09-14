@@ -48,6 +48,8 @@ describe('WhatsApp → agent → WhatsApp', () => {
   let selfBalanceSawPhone: string | null;
   /** Numbers mapped to a Tijarah company — what `BOT_REQUIRE_REGISTRATION` checks. */
   let registered: Set<string>;
+  /** Numbers the host directory puts on more than one account. */
+  let ambiguousFor: Map<string, { sid: number; grp: string; businessName: string }[]>;
 
   beforeEach(async () => {
     ds = new DataSource({
@@ -150,9 +152,22 @@ describe('WhatsApp → agent → WhatsApp', () => {
     // constructor comment for why it cannot be injected), so the test supplies the same
     // seam rather than a different construction path.
     registered = new Set();
+    ambiguousFor = new Map();
+    const tenantFor = (phone: string) => ({ whatsAppNo: phone, sid: 1, grp: 'GR', aYear: '2026', displayName: null });
     const botUsers = {
-      resolve: (phone: string) =>
-        Promise.resolve(registered.has(phone.replace(/\D/g, '')) ? { sid: 1, grp: 'GR', aYear: '2026' } : null),
+      lookup: (phone: string) => {
+        const digits = phone.replace(/\D/g, '');
+        if (registered.has(digits)) return Promise.resolve({ kind: 'registered', tenant: tenantFor(digits) });
+        const choices = ambiguousFor.get(digits);
+        return Promise.resolve(choices ? { kind: 'ambiguous', choices } : { kind: 'unknown' });
+      },
+      choose: (phone: string, answer: string, choices: { sid: number; businessName: string }[]) => {
+        const digits = phone.replace(/\D/g, '');
+        const picked = choices.find(c => c.businessName.toLowerCase() === answer.trim().toLowerCase());
+        if (!picked) return Promise.resolve(null);
+        registered.add(digits);
+        return Promise.resolve({ ...tenantFor(digits), sid: picked.sid, displayName: picked.businessName });
+      },
     };
     const moduleRef = {
       get: (token: unknown) => (token === BotUserService ? botUsers : registry),
@@ -594,6 +609,40 @@ describe('WhatsApp → agent → WhatsApp', () => {
       const result = await inbound(ADMIN, 'find Ali');
       expect(result.text).not.toMatch(/not registered/i);
       expect(executed).toContain('AgentSearchContacts');
+    });
+
+    it('asks which business when the number is on two accounts, then serves the chosen one', async () => {
+      ambiguousFor.set(CUSTOMER, [
+        { sid: 1006, grp: 'GR', businessName: 'Testing Company' },
+        { sid: 1007, grp: 'GR', businessName: 'Second Traders' },
+      ]);
+
+      const asked = await inbound(CUSTOMER, 'send me my ledger');
+      expect(asked.text).toMatch(/which business/i);
+      expect(asked.text).toContain('1. Testing Company');
+      expect(asked.text).toContain('2. Second Traders');
+      expect(executed).toHaveLength(0);
+
+      const chosen = await inbound(CUSTOMER, 'Second Traders');
+      expect(chosen.text).toMatch(/Linked to \*Second Traders\*/);
+      expect(executed).toHaveLength(0);
+
+      // Now registered: the next message is served.
+      const served = await inbound(CUSTOMER, 'what is my balance?');
+      expect(served.text).not.toMatch(/which business|not registered/i);
+      expect(executed).toContain('AgentSelfBalance');
+    });
+
+    it('asks again when the answer matches nothing, and still runs nothing', async () => {
+      ambiguousFor.set(CUSTOMER, [
+        { sid: 1006, grp: 'GR', businessName: 'Testing Company' },
+        { sid: 1007, grp: 'GR', businessName: 'Second Traders' },
+      ]);
+
+      const result = await inbound(CUSTOMER, 'the other one');
+
+      expect(result.text).toMatch(/which business/i);
+      expect(executed).toHaveLength(0);
     });
 
     it('a stranger is still ignored outright — registration is not an invitation', async () => {
