@@ -1,0 +1,269 @@
+/*
+ * Broadcasts page styles.
+ *
+ * Every rule below is scoped under the page root `.bc` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.bc {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+.bc-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.bc-layout:has(.bc-list:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.bc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.bc-card {
+  padding: 0.9rem 1rem;
+}
+
+.bc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.bc-card-name {
+  flex: 1;
+  font-size: 0.9375rem;
+  font-weight: 620;
+  color: var(--cc-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.bc-card-session {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+}
+
+/* Workflow spine: draft → approval → sending → done. */
+.bc-steps {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0.75rem 0;
+  padding: 0;
+}
+
+.bc-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--cc-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+  min-width: 0;
+}
+
+.bc-steps li span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cc-border-strong);
+  flex-shrink: 0;
+}
+
+.bc-steps li.is-done {
+  color: var(--primary-text);
+}
+
+.bc-steps li.is-done span {
+  background: var(--primary);
+}
+
+/* The connector line between steps, drawn on all but the last. */
+.bc-steps li:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--cc-border);
+  margin-left: 0.3rem;
+}
+
+.bc-card-body {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-surface-inset);
+  border: 1px solid var(--cc-border);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--cc-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bc-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+}
+
+.bc-progress-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--cc-surface-inset);
+  overflow: hidden;
+}
+
+.bc-progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.bc-failed {
+  color: var(--cc-urgent-text);
+}
+
+.bc-card-foot {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+}
+
+.bc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.7rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--cc-border);
+}
+
+.bc-recipients {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--cc-border);
+}
+
+.bc-editor {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+.bc-audience {
+  padding: 0.65rem 0.7rem;
+  border-radius: var(--cc-radius);
+  border: 1px solid var(--cc-border);
+  background: var(--cc-surface-inset);
+}
+
+.bc-tag-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.bc-preview {
+  margin-top: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-resolved-soft);
+  border: 1px solid color-mix(in srgb, var(--cc-resolved) 25%, transparent);
+}
+
+.bc-preview.is-empty {
+  background: var(--cc-urgent-soft);
+  border-color: color-mix(in srgb, var(--cc-urgent) 25%, transparent);
+}
+
+.bc-preview-nums {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 0.75rem;
+  color: var(--cc-text-secondary);
+}
+
+.bc-preview-nums b {
+  font-size: 1rem;
+  color: var(--cc-text);
+  margin-right: 0.25rem;
+}
+
+.bc-preview-nums span:last-child {
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+}
+
+.bc-preview-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin: 0.45rem 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--cc-high-text);
+}
+
+.bc-preview-warn svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.bc-message-preview {
+  margin-top: 0.75rem;
+}
+
+/* A WhatsApp-shaped bubble so the operator sees roughly what the customer will. */
+.bc-bubble {
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px 10px 10px 2px;
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--cc-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 90%;
+}
+
+@media (max-width: 1100px) {
+  .bc-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bc-editor {
+    position: static;
+    max-height: none;
+  }
+}

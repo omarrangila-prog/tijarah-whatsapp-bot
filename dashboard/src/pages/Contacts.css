@@ -1,0 +1,225 @@
+/*
+ * Contacts page styles.
+ *
+ * Every rule below is scoped under the page root `.contacts` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.contacts {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+/* Contacts: a master/detail pair that collapses to a single pane on narrow screens. */
+
+.contacts-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 190px);
+  overflow: hidden;
+}
+
+.contacts-filters {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--cc-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.contacts-count {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+}
+
+.contacts-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.contacts-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.contacts-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--cc-border);
+  border-left: 3px solid transparent;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.contacts-row:hover {
+  background: var(--cc-surface-hover);
+}
+
+.contacts-row.is-selected {
+  background: var(--cc-surface-active);
+  border-left-color: var(--primary);
+}
+
+.contacts-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.contacts-row-name {
+  font-size: 0.8125rem;
+  font-weight: 560;
+  color: var(--cc-text);
+}
+
+.contacts-row-sub {
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+}
+
+.contacts-consent {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.contacts-consent.is-resolved {
+  background: var(--cc-resolved-soft);
+  color: var(--cc-resolved-text);
+}
+.contacts-consent.is-urgent {
+  background: var(--cc-urgent-soft);
+  color: var(--cc-urgent-text);
+}
+.contacts-consent.is-neutral {
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-faint);
+}
+
+.contacts-row-count {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  min-width: 28px;
+  text-align: right;
+}
+
+.contacts-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--cc-border);
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+  flex-shrink: 0;
+}
+
+.contacts-detail {
+  min-height: 320px;
+}
+
+.contacts-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--cc-border);
+}
+
+.contacts-back {
+  display: none;
+}
+
+.contacts-detail-name {
+  font-size: 1rem;
+  font-weight: 640;
+  color: var(--cc-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.contacts-detail-sub {
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+  margin: 1px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.contacts-facts {
+  margin: 0 0 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.6rem 1.25rem;
+}
+
+.contacts-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.contacts-facts dt {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+}
+
+.contacts-facts dd {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--cc-text);
+  min-width: 0;
+}
+
+.contacts-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 1rem;
+}
+
+.contacts-block {
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--cc-border);
+}
+
+@media (max-width: 940px) {
+  .contacts-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .contacts-list {
+    max-height: none;
+  }
+  /* One pane at a time on narrow screens: the detail replaces the list once a contact is chosen. */
+  .contacts.has-selection .contacts-list {
+    display: none;
+  }
+  .contacts:not(.has-selection) .contacts-detail {
+    display: none;
+  }
+  .contacts-back {
+    display: inline-flex;
+  }
+}

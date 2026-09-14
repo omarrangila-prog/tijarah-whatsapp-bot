@@ -1,0 +1,209 @@
+/*
+ * Automations page styles.
+ *
+ * Every rule below is scoped under the page root `.auto` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.auto {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+.auto-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.auto-layout:has(.auto-list:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.auto-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.auto-card {
+  padding: 0.85rem 1rem;
+}
+
+.auto-card.is-disabled {
+  opacity: 0.62;
+}
+
+.auto-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.auto-card-name {
+  flex: 1;
+  font-size: 0.9375rem;
+  font-weight: 620;
+  color: var(--cc-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.auto-card-desc {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+  line-height: 1.5;
+}
+
+/* The WHEN → IF → THEN strip. It wraps rather than scrolls: a rule that reads across two lines is
+   still readable, whereas one that scrolls sideways hides half of itself. */
+.auto-flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.7rem;
+}
+
+.auto-flow > svg {
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+}
+
+.auto-step {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: var(--cc-radius-sm);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  border: 1px solid transparent;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.auto-step b {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.auto-step-when {
+  background: var(--cc-open-soft);
+  color: var(--cc-open-text);
+  border-color: color-mix(in srgb, var(--cc-open) 22%, transparent);
+}
+
+.auto-step-if {
+  background: var(--cc-waiting-soft);
+  color: var(--cc-waiting-text);
+  border-color: color-mix(in srgb, var(--cc-waiting) 22%, transparent);
+}
+
+.auto-step-then {
+  background: var(--cc-resolved-soft);
+  color: var(--cc-resolved-text);
+  border-color: color-mix(in srgb, var(--cc-resolved) 22%, transparent);
+}
+
+.auto-card-foot {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--cc-border);
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+}
+
+.auto-editor {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+/* The three editor blocks echo the colours of the WHEN/IF/THEN strip, so the form and the summary
+   are visibly the same three ideas. */
+.auto-block {
+  margin: 1rem 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--cc-radius);
+  border: 1px solid var(--cc-border);
+  background: var(--cc-surface-inset);
+}
+
+.auto-block-when {
+  border-left: 3px solid var(--cc-open);
+}
+.auto-block-if {
+  border-left: 3px solid var(--cc-waiting);
+}
+.auto-block-then {
+  border-left: 3px solid var(--cc-resolved);
+}
+
+.auto-condition {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.1fr) auto;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  align-items: center;
+}
+
+.auto-action {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--cc-border);
+}
+
+.auto-action:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.auto-reason {
+  font-size: 0.625rem;
+  color: var(--cc-text-faint);
+  margin-top: 2px;
+}
+
+.auto-action-result {
+  display: inline-block;
+  font-size: 0.625rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  margin-right: 0.2rem;
+}
+
+.auto-action-result.is-ok {
+  background: var(--cc-resolved-soft);
+  color: var(--cc-resolved-text);
+}
+
+.auto-action-result.is-bad {
+  background: var(--cc-urgent-soft);
+  color: var(--cc-urgent-text);
+}
+
+@media (max-width: 1100px) {
+  .auto-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .auto-editor {
+    position: static;
+    max-height: none;
+  }
+  .auto-condition {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}

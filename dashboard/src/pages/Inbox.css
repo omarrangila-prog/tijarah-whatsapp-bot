@@ -1,0 +1,1597 @@
+/*
+ * Unified inbox layout.
+ *
+ * Four columns on the desktop — filter rail, conversation list, thread, customer panel — collapsing
+ * to three, then two, then a single pane on mobile. The grid is the only thing that changes at each
+ * breakpoint; the components inside it are unaware of the viewport.
+ *
+ * The whole surface is a fixed-height flexbox that never scrolls as a page: each column owns its
+ * own scroll, which is what keeps the composer pinned and the filter rail visible while a long
+ * thread scrolls.
+ */
+
+.inbox {
+  display: grid;
+  grid-template-columns: var(--cc-rail) var(--cc-list) minmax(0, 1fr) var(--cc-panel);
+  /* The shell has no desktop header — the sidebar is beside the content — so the inbox owns the
+     full viewport height. The mobile breakpoint subtracts the mobile header instead. */
+  height: 100vh;
+  min-height: 480px;
+  background: var(--cc-surface-sunken);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Left rail ──────────────────────────────────────────────────────── */
+
+.inbox-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1rem 0.75rem;
+  border-right: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  overflow-y: auto;
+}
+
+.inbox-rail-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.inbox-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.inbox-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.44rem 0.55rem;
+  border: none;
+  border-radius: var(--cc-radius-sm);
+  background: transparent;
+  color: var(--cc-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.inbox-rail-item:hover {
+  background: var(--cc-surface-hover);
+  color: var(--cc-text);
+}
+
+.inbox-rail-item.is-active {
+  background: var(--cc-surface-active);
+  color: var(--cc-text);
+  font-weight: 600;
+}
+
+.inbox-rail-item svg {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.inbox-rail-item.is-active svg {
+  opacity: 1;
+  color: var(--primary-text);
+}
+
+.inbox-rail-count {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  font-weight: 620;
+  color: var(--cc-text-muted);
+  background: var(--cc-surface-inset);
+  border-radius: 20px;
+  padding: 0 0.35rem;
+  min-width: 18px;
+  text-align: center;
+}
+
+.inbox-rail-empty,
+.inbox-rail-note {
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+  margin: 0.35rem 0.55rem 0;
+  line-height: 1.5;
+}
+
+.inbox-rail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0 0.15rem;
+}
+
+.inbox-rail-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.6rem 0.55rem 0;
+  border-top: 1px solid var(--cc-border);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--cc-text-faint);
+}
+
+.inbox-rail-footer svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ── Conversation list ──────────────────────────────────────────────── */
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  overflow: hidden;
+}
+
+/* The responsive rules below hide/show `.inbox-list`; the wrapper it now sits in must follow it, or
+   the mobile single-pane layout would keep an empty column on screen. */
+@media (max-width: 780px) {
+  .inbox-pane-chat .inbox-centre {
+    display: none;
+  }
+}
+
+.inbox-list-head {
+  padding: 0.75rem 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--cc-border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.inbox-list-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.inbox-list-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  font-weight: 500;
+}
+
+.inbox-filter-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--primary-text);
+}
+
+.inbox-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.inbox-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.inbox-card {
+  position: relative;
+  display: flex;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.65rem 0.8rem 0.65rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--cc-border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  /* The card's left edge carries the selection marker; a transparent border keeps the text from
+     shifting when a row becomes selected. */
+  border-left: 3px solid transparent;
+  transition: background-color 0.1s ease;
+}
+
+/* Status as a short rail rather than a chip on every row. A chip cost a full line of the densest
+   surface in the product to repeat the thing you are usually already filtering by; the rail says
+   the same thing in three pixels and never competes with the message text. */
+.inbox-card::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.65rem;
+  bottom: 0.65rem;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+}
+
+.inbox-card.is-waiting::after {
+  background: var(--cc-waiting);
+}
+
+.inbox-card.is-resolved::after {
+  background: var(--cc-resolved);
+  opacity: 0.55;
+}
+
+.inbox-card:hover {
+  background: var(--cc-surface-hover);
+}
+
+.inbox-card.is-selected {
+  background: var(--cc-surface-active);
+  border-left-color: var(--primary);
+}
+
+.inbox-card:focus-visible {
+  outline: none;
+  box-shadow: inset var(--cc-ring);
+}
+
+.inbox-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+}
+
+.inbox-card-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.inbox-card-name {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-weight: 560;
+  color: var(--cc-text);
+}
+
+.inbox-card.is-unread .inbox-card-name {
+  font-weight: 680;
+}
+
+.inbox-card-time {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Priority as a compact marker beside the name. Only urgent and high render one — "normal" is the
+   default on every conversation, so a badge for it would be noise on every single row. */
+.inbox-card-flag {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.inbox-card-flag.is-urgent {
+  width: 15px;
+  height: 15px;
+  background: var(--cc-urgent);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.inbox-card-flag.is-high {
+  width: 7px;
+  height: 7px;
+  background: var(--cc-high);
+}
+
+.inbox-card-preview {
+  flex: 1;
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+  line-height: 1.4;
+}
+
+.inbox-card.is-unread .inbox-card-preview {
+  color: var(--cc-text-secondary);
+}
+
+.inbox-card-you {
+  color: var(--cc-text-faint);
+}
+
+.inbox-card-badge {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.3rem;
+  border-radius: 20px;
+  background: var(--primary);
+  color: #06251a;
+  font-size: 0.625rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.inbox-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
+}
+
+.inbox-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.inbox-card-spacer {
+  flex: 1;
+}
+
+.inbox-card-session,
+.inbox-card-kind {
+  font-size: 0.625rem;
+  color: var(--cc-text-faint);
+  max-width: 84px;
+  flex-shrink: 0;
+}
+
+.inbox-card-tag {
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 0.05rem 0.28rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--tag, #6366f1) 15%, transparent);
+  color: var(--tag, #6366f1);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.inbox-card-assignee {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.inbox-list-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem;
+}
+
+/* ── Chat column ────────────────────────────────────────────────────── */
+
+.inbox-chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--cc-surface-sunken);
+  overflow: hidden;
+}
+
+/* The chat column also carries `chats-page` so the reused thread/composer styles apply. That class
+   brings its own page padding and width, which are wrong inside a grid cell — neutralise them here
+   rather than editing Chats.css, which the standalone Chats route still depends on. */
+.inbox .inbox-chat.chats-page {
+  padding: 0;
+  width: auto;
+}
+
+.inbox-chat-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+}
+
+.inbox-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  /* Keep the header to one row wherever it fits: it sits above the thread on every screen, so each
+     extra row it wraps to is a row of conversation the agent cannot see. */
+  row-gap: 0.4rem;
+}
+
+.inbox-back {
+  display: none;
+}
+
+.inbox-chat-identity {
+  min-width: 0;
+  flex: 1;
+}
+
+.inbox-chat-name {
+  font-size: 0.9375rem;
+  font-weight: 640;
+  color: var(--cc-text);
+  letter-spacing: -0.01em;
+}
+
+.inbox-chat-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+  margin-top: 1px;
+}
+
+.inbox-sep {
+  color: var(--cc-text-faint);
+}
+
+.inbox-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* The three state dropdowns share the row with the action buttons, so they are allowed to shrink
+   rather than forcing a wrap. */
+.inbox-chat-actions .cc-mini-select {
+  flex: 0 1 auto;
+  min-width: 74px;
+}
+
+.inbox-chat-actions .is-starred {
+  color: var(--warning);
+}
+
+.inbox-connection {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  background: var(--cc-high-soft);
+  color: var(--cc-high-text);
+  font-size: 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--cc-high) 25%, transparent);
+  flex-shrink: 0;
+}
+
+/* The reused thread from the Chats page fills the remaining height. */
+.inbox-chat .chat-messages {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Composer ───────────────────────────────────────────────────────── */
+
+.inbox-composer {
+  position: relative;
+  border-top: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  flex-shrink: 0;
+}
+
+.inbox-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.35rem 0.6rem 0;
+  flex-wrap: wrap;
+}
+
+.inbox-schedule {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem 0;
+}
+
+.inbox-schedule .cc-input {
+  max-width: 220px;
+}
+
+.inbox-schedule svg {
+  color: var(--cc-text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Quick reply picker ─────────────────────────────────────────────── */
+
+.inbox-qr {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: 0.6rem;
+  right: 0.6rem;
+  max-width: 560px;
+  background: var(--cc-surface-raised);
+  border: 1px solid var(--cc-border-strong);
+  border-radius: var(--cc-radius);
+  box-shadow: var(--cc-shadow-lg);
+  z-index: 30;
+  overflow: hidden;
+}
+
+.inbox-qr-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--cc-border);
+  font-size: 0.6875rem;
+  font-weight: 640;
+  color: var(--cc-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.inbox-qr-head kbd {
+  font-family: inherit;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  padding: 0.05rem 0.28rem;
+  border-radius: 3px;
+  border: 1px solid var(--cc-border-strong);
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-faint);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.inbox-qr-head kbd:first-of-type {
+  margin-left: auto;
+}
+
+.inbox-qr-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.inbox-qr-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: 'shortcut title' 'shortcut body';
+  gap: 0 0.6rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: var(--cc-radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.inbox-qr-item.is-active {
+  background: var(--cc-surface-active);
+}
+
+.inbox-qr-shortcut {
+  grid-area: shortcut;
+  align-self: center;
+  font-size: 0.75rem;
+  font-weight: 640;
+  color: var(--primary-text);
+  background: var(--primary-soft);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--cc-radius-xs);
+  white-space: nowrap;
+}
+
+.inbox-qr-title {
+  grid-area: title;
+  font-size: 0.8125rem;
+  font-weight: 560;
+  color: var(--cc-text);
+}
+
+.inbox-qr-body {
+  grid-area: body;
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+}
+
+.inbox-qr-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.9rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+}
+
+/* ── Right panel ────────────────────────────────────────────────────── */
+
+.inbox-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  overflow: hidden;
+}
+
+.inbox-panel-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--cc-radius-lg);
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-faint);
+}
+
+.inbox-panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  height: 100%;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: var(--cc-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.inbox-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--cc-border);
+  flex-shrink: 0;
+}
+
+.inbox-panel-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.6rem 0.4rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--cc-text-muted);
+  font-size: 0.75rem;
+  font-weight: 560;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.1s ease, border-color 0.1s ease;
+}
+
+.inbox-panel-tab:hover {
+  color: var(--cc-text);
+}
+
+.inbox-panel-tab.is-active {
+  color: var(--cc-text);
+  border-bottom-color: var(--primary);
+}
+
+.inbox-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ── Customer panel ─────────────────────────────────────────────────── */
+
+.inbox-cust-panel {
+  padding-bottom: 2rem;
+}
+
+.inbox-cust-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.25rem 1rem 1rem;
+  border-bottom: 1px solid var(--cc-border);
+  text-align: center;
+}
+
+.inbox-cust-name {
+  font-size: 0.9375rem;
+  font-weight: 640;
+  color: var(--cc-text);
+  margin: 0.35rem 0 0;
+  letter-spacing: -0.01em;
+}
+
+.inbox-cust-number {
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-cust-head-meta {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 0.35rem;
+}
+
+.inbox-cust-section {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--cc-border);
+}
+
+.inbox-cust-section:last-child {
+  border-bottom: none;
+}
+
+.inbox-cust-facts {
+  margin: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.inbox-cust-facts > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.inbox-cust-facts dt {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  font-weight: 500;
+}
+
+.inbox-cust-facts dd {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--cc-text-secondary);
+  min-width: 0;
+}
+
+.inbox-cust-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.inbox-cust-form .cc-field {
+  margin-bottom: 0.55rem;
+}
+
+.inbox-cust-custom-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+  align-items: center;
+}
+
+.inbox-cust-custom-key {
+  font-size: 0.6875rem;
+  color: var(--cc-text-secondary);
+  font-weight: 560;
+}
+
+.inbox-cust-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.inbox-cust-note {
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-high-soft);
+  border: 1px solid color-mix(in srgb, var(--cc-high) 22%, transparent);
+}
+
+.inbox-cust-note-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.625rem;
+  color: var(--cc-text-muted);
+  margin-bottom: 0.2rem;
+}
+
+.inbox-cust-note-head span {
+  font-weight: 640;
+  color: var(--cc-text-secondary);
+}
+
+.inbox-cust-note-head time {
+  margin-left: auto;
+}
+
+.inbox-cust-note p {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--cc-text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── AI panel ───────────────────────────────────────────────────────── */
+
+.inbox-ai {
+  padding: 1rem;
+}
+
+.inbox-ai-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  padding: 2.25rem 1.25rem;
+}
+
+.inbox-ai-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--cc-radius-lg);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+.inbox-ai-intro h3 {
+  font-size: 0.9375rem;
+  font-weight: 640;
+  color: var(--cc-text);
+  margin: 0;
+}
+
+.inbox-ai-intro p {
+  font-size: 0.8125rem;
+  color: var(--cc-text-muted);
+  line-height: 1.55;
+  margin: 0 0 0.35rem;
+}
+
+.inbox-ai-degraded {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  color: var(--cc-high-text);
+  margin: 0.5rem 0 0;
+  text-align: left;
+  line-height: 1.45;
+}
+
+.inbox-ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.inbox-ai-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--primary-text);
+  background: var(--primary-soft);
+  padding: 0.14rem 0.45rem;
+  border-radius: var(--cc-radius-xs);
+}
+
+.inbox-ai-cached {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  margin: -0.35rem 0 0.75rem;
+}
+
+.inbox-ai-section {
+  margin-bottom: 1.15rem;
+}
+
+.inbox-ai-summary {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--cc-text-secondary);
+  margin: 0;
+}
+
+.inbox-ai-signals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.inbox-ai-signal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.inbox-ai-signal .cc-label {
+  margin: 0;
+}
+
+.inbox-ai-signal .cc-chip {
+  justify-content: center;
+  text-transform: capitalize;
+}
+
+.inbox-ai-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.inbox-ai-points li {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--cc-text-secondary);
+}
+
+.inbox-ai-points svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: var(--cc-text-faint);
+}
+
+.inbox-ai-extracted {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.inbox-ai-extracted-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.inbox-ai-extracted-row dt {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+}
+
+.inbox-ai-extracted-row dd {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--cc-text);
+  font-weight: 560;
+}
+
+.inbox-ai-reply {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--cc-text);
+  background: var(--cc-surface-inset);
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-sm);
+  padding: 0.65rem 0.7rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inbox-ai-reply-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.inbox-ai-disclaimer {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  margin: 0.45rem 0 0;
+}
+
+.inbox-ai-next {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-open-soft);
+  border: 1px solid color-mix(in srgb, var(--cc-open) 22%, transparent);
+  color: var(--cc-open-text);
+}
+
+.inbox-ai-next svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.inbox-ai-next p {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* ── Activity tab ───────────────────────────────────────────────────── */
+
+.inbox-activity {
+  padding: 1rem;
+}
+
+.inbox-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border-left: 1px solid var(--cc-border);
+}
+
+.inbox-timeline li {
+  position: relative;
+  padding-left: 0.85rem;
+  font-size: 0.75rem;
+  color: var(--cc-text-secondary);
+}
+
+.inbox-timeline-dot {
+  position: absolute;
+  left: -5px;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cc-surface);
+  border: 2px solid var(--primary);
+}
+
+.inbox-timeline strong {
+  color: var(--cc-text);
+  font-weight: 620;
+  text-transform: capitalize;
+}
+
+.inbox-timeline time {
+  display: block;
+  font-size: 0.625rem;
+  color: var(--cc-text-faint);
+  margin-top: 1px;
+}
+
+.inbox-timeline-reason {
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+  margin-top: 1px;
+}
+
+/* ── Live indicator ─────────────────────────────────────────────────── */
+
+.inbox-live {
+  position: absolute;
+  right: calc(var(--cc-panel) + 0.75rem);
+  bottom: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 20px;
+  font-size: 0.625rem;
+  font-weight: 620;
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-faint);
+  border: 1px solid var(--cc-border);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.inbox-live.is-live {
+  color: var(--primary-text);
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 28%, transparent);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────── */
+
+/* Below 1440px the customer panel is the first thing to go — it is reference material, while the
+   list and the thread are the work. */
+@media (max-width: 1440px) {
+  .inbox {
+    grid-template-columns: var(--cc-rail) var(--cc-list) minmax(0, 1fr);
+  }
+  .inbox-panel {
+    display: none;
+  }
+  .inbox-live {
+    right: 0.75rem;
+  }
+}
+
+/* Restore the panel on tall-but-narrow desktops by dropping the rail instead: the saved views are
+   reachable from the list's own filters, the customer context is not. */
+@media (max-width: 1440px) and (min-width: 1100px) {
+  .inbox {
+    grid-template-columns: var(--cc-list) minmax(0, 1fr) var(--cc-panel);
+  }
+  .inbox-rail {
+    display: none;
+  }
+  .inbox-panel {
+    display: flex;
+  }
+  .inbox-live {
+    right: calc(var(--cc-panel) + 0.75rem);
+  }
+}
+
+@media (max-width: 1099px) {
+  .inbox {
+    grid-template-columns: var(--cc-list) minmax(0, 1fr);
+  }
+  .inbox-rail,
+  .inbox-panel {
+    display: none;
+  }
+}
+
+/* Single pane on mobile: the list and the thread swap, driven by .inbox-pane-*. */
+@media (max-width: 780px) {
+  .inbox {
+    grid-template-columns: minmax(0, 1fr);
+    height: calc(100vh - var(--cc-header));
+  }
+
+  .inbox-pane-list .inbox-chat,
+  .inbox-pane-chat .inbox-list {
+    display: none;
+  }
+  .inbox-back {
+    display: inline-flex;
+  }
+  .inbox-chat-actions {
+    width: 100%;
+    order: 3;
+  }
+  .inbox-live {
+    display: none;
+  }
+}
+
+/* ── Offline number notice ──────────────────────────────────────────────
+   Replaces the composer when the conversation's WhatsApp number is not connected. A composer that
+   accepts a message it cannot send reads as a broken product; this states the actual reason and
+   offers the action that fixes it. */
+
+.inbox-offline {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  padding: 0.8rem 0.9rem;
+  border-top: 1px solid color-mix(in srgb, var(--cc-high) 30%, transparent);
+  background: var(--cc-high-soft);
+  color: var(--cc-high-text);
+  flex-shrink: 0;
+}
+
+.inbox-offline > svg {
+  flex-shrink: 0;
+}
+
+.inbox-offline-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 180px;
+  line-height: 1.45;
+}
+
+.inbox-offline-text strong {
+  font-size: 0.8125rem;
+  font-weight: 620;
+}
+
+.inbox-offline-text span {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+/* ── Shared-inbox presence ──────────────────────────────────────────────
+   Two signals, in the two places they are acted on: who is on shift, above the queue they are
+   working; and who else has THIS conversation open, directly above the composer where a second
+   agent is about to start writing the same reply. */
+
+.inbox-centre {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  overflow: hidden;
+}
+
+/* The list already carries the right border on its own; inside the centre column it must not
+   double up with the wrapper's. */
+.inbox-centre .inbox-list {
+  border-right: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.inbox-team {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--cc-border);
+  background: var(--cc-surface-inset);
+  overflow-x: auto;
+  flex-shrink: 0;
+  /* The strip scrolls rather than wrapping: a shift of a hundred agents must not push the queue
+     off the screen. */
+  scrollbar-width: thin;
+}
+
+.inbox-team-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+  padding-right: 0.15rem;
+}
+
+.inbox-team-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.12rem 0.4rem 0.12rem 0.12rem;
+  border-radius: 20px;
+  background: var(--cc-surface);
+  border: 1px solid var(--cc-border);
+  font-size: 0.6875rem;
+  color: var(--cc-text-secondary);
+  max-width: 116px;
+  flex-shrink: 0;
+}
+
+/* An agent already in a conversation is dimmed, so the available ones stand out — that is the
+   question a supervisor is asking when they look at this strip. */
+.inbox-team-chip.is-busy {
+  opacity: 0.62;
+}
+
+.inbox-team-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.inbox-team-typing {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
+  animation: inbox-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes inbox-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.inbox-team-more {
+  font-size: 0.625rem;
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+  padding-left: 0.1rem;
+}
+
+.inbox-viewers {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.75rem;
+  background: var(--cc-high-soft);
+  color: var(--cc-high-text);
+  border-top: 1px solid color-mix(in srgb, var(--cc-high) 28%, transparent);
+  flex-shrink: 0;
+}
+
+/* Someone actively typing is a stronger signal than someone merely reading — it means a reply is
+   seconds away, so it gets the urgent tint rather than the advisory one. */
+.inbox-viewers.is-typing {
+  background: var(--cc-urgent-soft);
+  color: var(--cc-urgent-text);
+  border-top-color: color-mix(in srgb, var(--cc-urgent) 30%, transparent);
+}
+
+.inbox-viewers-avatars {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.inbox-viewer-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid var(--cc-surface);
+}
+
+/* Overlap the stack so several viewers stay compact. */
+.inbox-viewer-dot + .inbox-viewer-dot {
+  margin-left: -6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inbox-team-typing {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ── Handover ───────────────────────────────────────────────────────────
+   Transferring a conversation moves the context, not just the owner. */
+
+.inbox-transfer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 232px;
+  overflow-y: auto;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius);
+}
+
+.inbox-transfer-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  border-bottom: 1px solid var(--cc-border);
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.inbox-transfer-list li:last-child .inbox-transfer-option {
+  border-bottom: none;
+}
+
+.inbox-transfer-option:hover {
+  background: var(--cc-surface-hover);
+}
+
+.inbox-transfer-option.is-selected {
+  background: var(--primary-soft);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.inbox-transfer-name {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-weight: 560;
+  color: var(--cc-text);
+  min-width: 0;
+}
+
+.inbox-transfer-state {
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 0.08rem 0.35rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Availability is the thing being chosen on, so it carries the colour. */
+.inbox-transfer-state.is-free {
+  background: var(--cc-resolved-soft);
+  color: var(--cc-resolved-text);
+}
+.inbox-transfer-state.is-busy {
+  background: var(--cc-high-soft);
+  color: var(--cc-high-text);
+}
+.inbox-transfer-state.is-off {
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-faint);
+}
+
+/* ── Handoff briefing ───────────────────────────────────────────────── */
+
+.inbox-handoff {
+  flex-shrink: 0;
+  margin: 0.6rem 0.75rem 0;
+  border: 1px solid color-mix(in srgb, var(--cc-open) 32%, transparent);
+  border-radius: var(--cc-radius);
+  background: var(--cc-open-soft);
+  overflow: hidden;
+}
+
+.inbox-handoff-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--cc-open-text);
+  border-bottom: 1px solid color-mix(in srgb, var(--cc-open) 22%, transparent);
+}
+
+.inbox-handoff-head strong {
+  flex: 1;
+  font-weight: 640;
+}
+
+.inbox-handoff-body {
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.inbox-handoff-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.7rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+}
+
+.inbox-handoff-situation {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--cc-text);
+}
+
+.inbox-handoff-block ul {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.inbox-handoff-block li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--cc-text-secondary);
+}
+
+.inbox-handoff-block li svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+/* Commitments already made are the one thing the incoming agent must not contradict, so they get
+   their own surface rather than sitting in the same list as everything else. */
+.inbox-handoff-block.is-promised {
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-resolved-soft);
+  border: 1px solid color-mix(in srgb, var(--cc-resolved) 26%, transparent);
+}
+
+.inbox-handoff-block.is-promised li {
+  color: var(--cc-resolved-text);
+}
+
+.inbox-handoff-meta {
+  display: flex;
+  gap: 0.9rem;
+  font-size: 0.75rem;
+  color: var(--cc-text-secondary);
+}
+
+.inbox-handoff-meta .cc-label {
+  display: inline;
+  margin: 0 0.25rem 0 0;
+}
+
+.inbox-handoff-watch {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-high-soft);
+  color: var(--cc-high-text);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.inbox-handoff-watch svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.inbox-handoff-next {
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--cc-open) 20%, transparent);
+}
+
+.inbox-handoff-next p {
+  margin: 0.2rem 0 0.45rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--cc-text);
+  white-space: pre-wrap;
+}
+
+.inbox-handoff-provider {
+  font-size: 0.625rem;
+  color: var(--cc-text-faint);
+  margin-left: 0.5rem;
+}

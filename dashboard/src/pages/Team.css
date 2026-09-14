@@ -1,0 +1,284 @@
+/*
+ * Team page styles.
+ *
+ * Every rule below is scoped under the page root `.team` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.team {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+.team-notice {
+  margin-bottom: 1.25rem;
+  border-color: color-mix(in srgb, var(--cc-open) 30%, var(--cc-border));
+}
+
+.team-notice svg {
+  color: var(--cc-open-text);
+  flex-shrink: 0;
+}
+
+.team-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.team-form {
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--cc-border);
+  background: var(--cc-surface-inset);
+}
+
+.team-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0 0.85rem;
+}
+
+.team-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.team-rows li {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 1.1rem;
+  border-bottom: 1px solid var(--cc-border);
+  min-width: 0;
+}
+
+.team-rows li:last-child {
+  border-bottom: none;
+}
+
+.team-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.team-row-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 560;
+  color: var(--cc-text);
+}
+
+.team-you {
+  font-size: 0.5625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.team-row-sub {
+  font-size: 0.6875rem;
+  color: var(--cc-text-muted);
+}
+
+.team-row-seen {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  white-space: nowrap;
+}
+
+.team-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.team-card {
+  padding: 0.75rem 1.1rem;
+  border-bottom: 1px solid var(--cc-border);
+}
+
+.team-card:last-child {
+  border-bottom: none;
+}
+
+.team-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.team-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.team-card-name {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cc-text);
+}
+
+.team-card-desc {
+  margin: 0.3rem 0 0;
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+}
+
+.team-members {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.team-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.15rem;
+  border-radius: 20px;
+  background: var(--cc-surface-inset);
+  border: 1px solid var(--cc-border);
+  font-size: 0.6875rem;
+  color: var(--cc-text-secondary);
+}
+
+.team-member button {
+  border: none;
+  background: transparent;
+  color: var(--cc-text-faint);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.team-member button:hover {
+  color: var(--cc-urgent-text);
+}
+
+/* ── Work distribution ──────────────────────────────────────────────────
+   How one number's queue is shared across many agents. Sits above the roster because it governs it. */
+
+.team-routing {
+  margin-bottom: 1rem;
+}
+
+.team-shift {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--cc-text-muted);
+}
+
+.team-shift-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent);
+}
+
+.team-strategies {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.6rem;
+  margin: 0.85rem 0;
+}
+
+.team-strategy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--cc-radius);
+  border: 1px solid var(--cc-border-strong);
+  background: var(--cc-surface);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.team-strategy:hover:not(:disabled) {
+  border-color: var(--cc-text-faint);
+  background: var(--cc-surface-hover);
+}
+
+.team-strategy:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.team-strategy.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  /* A second ring rather than a thicker border, so the card does not shift by a pixel when chosen. */
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.team-strategy strong {
+  font-size: 0.8125rem;
+  font-weight: 620;
+  color: var(--cc-text);
+}
+
+.team-strategy span {
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--cc-text-muted);
+}
+
+.team-routing-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  align-items: flex-start;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--cc-border);
+  font-size: 0.8125rem;
+  color: var(--cc-text-secondary);
+}
+
+/* Live online marker on an agent's avatar. */
+.team-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.team-online-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 2px solid var(--cc-surface);
+}
+
+/* Privacy toggle. Sits below the routing options and outside their strategy conditional, so it
+   keeps a visible separator of its own rather than borrowing the one above it. */
+.team-privacy {
+  align-items: flex-start;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--cc-border);
+  font-size: 0.8125rem;
+  color: var(--cc-text-secondary);
+}

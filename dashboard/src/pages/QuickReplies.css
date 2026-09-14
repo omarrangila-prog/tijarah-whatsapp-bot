@@ -1,0 +1,181 @@
+/*
+ * Quick Replies page styles.
+ *
+ * Every rule below is scoped under the page root `.qr` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.qr {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+.qr-folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
+}
+
+.qr-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.28rem 0.6rem;
+  border-radius: var(--cc-radius-sm);
+  border: 1px solid var(--cc-border-strong);
+  background: var(--cc-surface-raised);
+  color: var(--cc-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 560;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.qr-folder:hover {
+  background: var(--cc-surface-hover);
+}
+
+.qr-folder.is-active {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  color: var(--primary-text);
+}
+
+.qr-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 1rem;
+  align-items: start;
+}
+
+/* No editor open — the list takes the full width rather than leaving a hole. */
+.qr-layout:has(.qr-list:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.qr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.qr-group .cc-label {
+  margin-bottom: 0.45rem;
+}
+
+.qr-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.qr-card {
+  padding: 0.75rem 0.85rem;
+  min-width: 0;
+}
+
+.qr-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  min-width: 0;
+}
+
+.qr-card-shortcut {
+  font-size: 0.75rem;
+  font-weight: 640;
+  color: var(--primary-text);
+  background: var(--primary-soft);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--cc-radius-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.qr-card-title {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-weight: 560;
+  color: var(--cc-text);
+  min-width: 0;
+}
+
+.qr-card-uses {
+  font-size: 0.625rem;
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+}
+
+.qr-card-body {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--cc-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Three lines is enough to recognise a reply; the editor shows the rest. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.qr-editor {
+  position: sticky;
+  top: 1rem;
+}
+
+.qr-shortcut-input {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.qr-shortcut-input > span {
+  font-size: 0.875rem;
+  font-weight: 640;
+  color: var(--cc-text-faint);
+}
+
+.qr-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.qr-var {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.6875rem;
+  padding: 0.18rem 0.4rem;
+  border-radius: var(--cc-radius-xs);
+  border: 1px dashed var(--cc-border-strong);
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-secondary);
+  cursor: pointer;
+}
+
+.qr-var:hover {
+  border-style: solid;
+  color: var(--cc-text);
+}
+
+.qr-var.is-used {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+}
+
+@media (max-width: 1000px) {
+  .qr-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qr-editor {
+    position: static;
+  }
+}

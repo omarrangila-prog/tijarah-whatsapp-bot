@@ -1,0 +1,65 @@
+/*
+ * Analytics page styles.
+ *
+ * Every rule below is scoped under the page root `.an` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.an {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+.an-filters {
+  margin-bottom: 1.25rem;
+}
+
+.an-filters-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  padding: 0.75rem 1.1rem;
+}
+
+.an-date {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+}
+
+.an-date .cc-input {
+  width: auto;
+}
+
+.an-sessions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.an-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 1rem;
+}
+
+.an-chart-wide {
+  grid-column: 1 / -1;
+}
+
+.an-right {
+  text-align: right;
+}
+
+.an-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WhatsApp Receivables Agent — live demonstration</title>
+<style>
+  :root {
+    --bg: #0e1117; --panel: #151a23; --panel-2: #1b212c; --line: #262d3a;
+    --ink: #e6edf3; --dim: #8b95a5; --faint: #5c6675;
+    --accent: #25d366; --accent-dim: #15803d;
+    --warn: #f0a020; --danger: #f05252; --info: #4f9cf9;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .sub { color: var(--dim); font-size: 12.5px; }
+  .spacer { flex: 1; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px;
+    padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--dim);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .dot.on { background: var(--accent); box-shadow: 0 0 0 3px rgba(37,211,102,.15); }
+  .dot.off { background: var(--danger); box-shadow: 0 0 0 3px rgba(240,82,82,.15); }
+  button {
+    font: inherit; font-size: 12.5px; color: var(--ink); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: #3a4456; background: #222936; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.danger { color: #ffd7d7; border-color: #5a2b2b; background: #2a1717; }
+  button.danger:hover:not(:disabled) { background: #3a1d1d; }
+  button.primary { background: var(--accent-dim); border-color: #1c8f4a; color: #eafff2; }
+  button.primary:hover:not(:disabled) { background: #17914f; }
+
+  main { display: grid; grid-template-columns: 300px minmax(400px, 1fr) 380px; gap: 14px; padding: 14px 20px 28px; align-items: start; }
+  @media (max-width: 1180px) { main { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .panel > h2 {
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em; color: var(--dim);
+    margin: 0; padding: 11px 14px; border-bottom: 1px solid var(--line); font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel > h2 .count { color: var(--faint); font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .panel .body { padding: 12px 14px; }
+  .panel .body.flush { padding: 0; }
+  .note { color: var(--faint); font-size: 12px; padding: 10px 14px 14px; line-height: 1.5; }
+
+  /* ledger */
+  .ledger-row { display: flex; justify-content: space-between; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #1e2530; }
+  .ledger-row:last-child { border-bottom: 0; }
+  .ledger-row .who { font-weight: 500; }
+  .ledger-row .meta { font-size: 11.5px; color: var(--faint); }
+  .ledger-row .amt { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ledger-row.settled .amt { color: var(--faint); }
+  .ledger-row.late .amt { color: var(--warn); }
+  .ledger-row.verylate .amt { color: var(--danger); }
+  .ledger-row.changed { animation: flash 1.6s ease-out; }
+  @keyframes flash { from { background: rgba(37,211,102,.18); } to { background: transparent; } }
+
+  /* chat */
+  .who-bar { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .who-bar button.sel { border-color: var(--accent-dim); background: #12281c; color: #d6ffe6; }
+  .who-bar .role { font-size: 10.5px; color: var(--faint); display: block; }
+  #log { height: 400px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; font-size: 13.3px; }
+  .msg .from { display: block; font-size: 10.5px; color: var(--faint); margin-bottom: 3px; letter-spacing: .02em; }
+  .msg.out { align-self: flex-end; background: #12331f; border: 1px solid #1d4a2d; }
+  .msg.in  { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
+  .msg.sys { align-self: center; background: transparent; border: 1px dashed #333c4c; color: var(--dim); font-size: 12px; max-width: 92%; text-align: center; }
+  .msg.err { align-self: center; background: #2a1717; border: 1px solid #5a2b2b; color: #ffd7d7; font-size: 12px; }
+  .composer { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .composer input {
+    flex: 1; font: inherit; font-size: 13.3px; color: var(--ink); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px;
+  }
+  .composer input:focus { outline: none; border-color: #3a4456; }
+  .script { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 14px 12px; }
+  .script button { font-size: 11.5px; padding: 5px 10px; color: var(--dim); }
+  .script .lbl { font-size: 11px; color: var(--faint); width: 100%; margin-bottom: 2px; letter-spacing: .04em; text-transform: uppercase; }
+
+  /* approvals + audit */
+  .appr { padding: 11px 14px; border-bottom: 1px solid #1e2530; }
+  .appr:last-child { border-bottom: 0; }
+  .appr .ref { font-weight: 600; color: var(--warn); }
+  .appr .tool { font-size: 11.5px; color: var(--faint); }
+  .appr .sum { font-size: 12.3px; color: var(--dim); margin-top: 5px; white-space: pre-wrap; }
+  .empty { color: var(--faint); font-size: 12.5px; padding: 14px; text-align: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 500; color: var(--faint); padding: 7px 8px; border-bottom: 1px solid var(--line); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+  td { padding: 7px 8px; border-bottom: 1px solid #1b212b; vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.msgcell { color: var(--dim); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: 10.5px; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .tag.ok { color: #9be6b4; border-color: #205237; }
+  .tag.refused, .tag.denied { color: #ffc4c4; border-color: #5a2b2b; }
+  .tag.halted { color: #ffddb0; border-color: #5c421c; }
+  .tag.appr { color: #ffddb0; border-color: #5c421c; }
+  .tag.inj { color: #ffc4c4; border-color: #5a2b2b; }
+  #auditWrap { max-height: 330px; overflow-y: auto; }
+
+  /* key gate */
+  #gate { position: fixed; inset: 0; background: rgba(10,13,18,.93); display: grid; place-items: center; z-index: 50; }
+  #gate .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; width: min(440px, 92vw); }
+  #gate h3 { margin: 0 0 8px; font-size: 15px; }
+  #gate p { color: var(--dim); font-size: 12.7px; margin: 0 0 14px; line-height: 1.6; }
+  #gate input { width: 100%; font: inherit; font-size: 13px; padding: 9px 12px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); }
+  #gate .row { display: flex; gap: 8px; margin-top: 12px; }
+  #gate .err { color: #ffb4b4; font-size: 12px; margin-top: 10px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>WhatsApp Receivables Agent</h1>
+  <span class="sub">live demonstration &middot; nothing is transmitted</span>
+  <span class="spacer"></span>
+  <span class="pill"><span class="dot" id="dotLedger"></span><span id="ledgerName">accounting</span></span>
+  <span class="pill"><span class="dot" id="dotAuto"></span><span id="autoLabel">automation</span></span>
+  <span class="pill" id="modePill">mode —</span>
+  <button id="btnStop" class="danger">Emergency stop</button>
+  <button id="btnReset" title="Clear turns, approvals, notes and opt-outs">Reset demo</button>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Accounting system <span class="count" id="ledgerCount"></span></h2>
+    <div class="body flush" id="ledger"><div class="empty">loading…</div></div>
+    <div class="note">Read live through the ledger adapter — the same source the agent reads. The agent never stores or calculates a balance itself.</div>
+  </section>
+
+  <section class="panel">
+    <h2>WhatsApp</h2>
+    <div class="who-bar" id="whoBar"></div>
+    <div id="log"></div>
+    <div class="script" id="script"></div>
+    <div class="composer">
+      <input id="input" placeholder="Type a message as the selected person…" autocomplete="off">
+      <button id="btnSend" class="primary">Send</button>
+    </div>
+  </section>
+
+  <div style="display:grid; gap:14px;">
+    <section class="panel">
+      <h2>Waiting for a human <span class="count" id="apprCount"></span></h2>
+      <div class="body flush" id="approvals"><div class="empty">nothing pending</div></div>
+    </section>
+    <section class="panel">
+      <h2>On the record</h2>
+      <div id="auditWrap"><table><thead><tr><th>Who</th><th>Message</th><th>Outcome</th><th>Decision</th></tr></thead><tbody id="audit"></tbody></table></div>
+    </section>
+  </div>
+</main>
+
+<div id="gate">
+  <div class="card">
+    <h3>API key</h3>
+    <p>This console drives the running agent through its real API, so it needs the demo instance's
+       admin key. <code>start.sh</code> prints it, and it is also in
+       <code>scripts/agent-demo/data/.api-key</code>. It is kept in this browser only.</p>
+    <input id="keyInput" type="password" placeholder="owa_k1_…" autocomplete="off" spellcheck="false">
+    <div class="row"><button id="keyGo" class="primary">Connect</button></div>
+    <div class="err" id="keyErr"></div>
+  </div>
+</div>
+
+<script src="/assets/agent-demo.js"></script>
+</body>
+</html>

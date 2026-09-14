@@ -1,0 +1,203 @@
+/*
+ * WhatsApp Numbers page styles.
+ *
+ * Every rule below is scoped under the page root `.num` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.num {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+.num-create {
+  margin-bottom: 1rem;
+}
+
+.num-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 1rem;
+}
+
+.num-card {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* A connected number gets a green edge; anything needing attention gets an amber one. The colour
+   is a second signal alongside the status dot, never the only one. */
+.num-card.status-ready {
+  box-shadow: inset 3px 0 0 var(--success), var(--cc-shadow-sm);
+}
+
+.num-card.status-failed,
+.num-card.status-action_required {
+  box-shadow: inset 3px 0 0 var(--error), var(--cc-shadow-sm);
+}
+
+.num-card.status-qr_ready,
+.num-card.status-authenticating,
+.num-card.status-initializing {
+  box-shadow: inset 3px 0 0 var(--warning), var(--cc-shadow-sm);
+}
+
+.num-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.num-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--cc-radius);
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  flex-shrink: 0;
+}
+
+.num-name {
+  font-size: 0.9375rem;
+  font-weight: 620;
+  color: var(--cc-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.num-phone {
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+  margin: 1px 0 0;
+}
+
+.num-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--cc-text-secondary);
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.num-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-high-soft);
+  color: var(--cc-high-text);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+}
+
+.num-warning svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.num-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+.num-stats > div {
+  min-width: 0;
+}
+
+.num-stats dt {
+  font-size: 0.625rem;
+  color: var(--cc-text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.num-stats dd {
+  margin: 1px 0 0;
+  font-size: 0.8125rem;
+  color: var(--cc-text);
+  font-weight: 560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.num-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: auto;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--cc-border);
+}
+
+/* ── QR modal ───────────────────────────────────────────────────────── */
+
+.num-qr-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 12, 22, 0.62);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 100;
+  backdrop-filter: blur(3px);
+}
+
+.num-qr {
+  width: min(420px, 100%);
+  box-shadow: var(--cc-shadow-lg);
+}
+
+.num-qr-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.num-qr-img {
+  width: 240px;
+  height: 240px;
+  border-radius: var(--cc-radius);
+  /* The engine renders a dark-on-white code; a white plate keeps it scannable in dark mode. */
+  background: #fff;
+  padding: 8px;
+}
+
+.num-qr-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  height: 240px;
+  justify-content: center;
+  color: var(--cc-text-muted);
+  font-size: 0.8125rem;
+}
+
+.num-qr-steps {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8125rem;
+  color: var(--cc-text-secondary);
+  line-height: 1.7;
+  align-self: stretch;
+}
+
+.num-qr-steps strong {
+  color: var(--cc-text);
+  font-weight: 600;
+}

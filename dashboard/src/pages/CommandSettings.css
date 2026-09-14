@@ -1,0 +1,155 @@
+/*
+ * Settings page styles.
+ *
+ * Every rule below is scoped under the page root `.set` — enforced by src/styles.scope.test.ts.
+ * Two pages defining the same bare class would otherwise leak across each other depending on which
+ * route was visited last. Classes shared with other surfaces live in styles/command-center.css.
+ */
+
+.set {
+  /* The page root. Layout comes from .cc-page; this class exists to scope everything below it. */
+  display: block;
+}
+
+.set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.set-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.6rem 0;
+  font-size: 0.75rem;
+}
+
+.set-tag-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--cc-border);
+  flex-wrap: wrap;
+}
+
+.set-tag-form .cc-input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.set-ai {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--cc-radius);
+  border: 1px solid transparent;
+}
+
+.set-ai.is-ok {
+  background: var(--cc-resolved-soft);
+  border-color: color-mix(in srgb, var(--cc-resolved) 25%, transparent);
+  color: var(--cc-resolved-text);
+}
+
+.set-ai.is-degraded {
+  background: var(--cc-open-soft);
+  border-color: color-mix(in srgb, var(--cc-open) 25%, transparent);
+  color: var(--cc-open-text);
+}
+
+.set-ai svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.set-ai strong {
+  font-size: 0.8125rem;
+}
+
+.set-ai p {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+
+.set-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.set-rows li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.1rem;
+  border-bottom: 1px solid var(--cc-border);
+  font-size: 0.8125rem;
+  min-width: 0;
+}
+
+.set-rows li:last-child {
+  border-bottom: none;
+}
+
+.set-rows svg {
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+}
+
+.set-row-main {
+  flex: 1;
+  color: var(--cc-text);
+  min-width: 0;
+}
+
+.set-row-time {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  white-space: nowrap;
+}
+
+.set-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.set-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-surface-inset);
+  border: 1px solid var(--cc-border);
+  color: var(--cc-text);
+  font-size: 0.8125rem;
+  font-weight: 540;
+  text-decoration: none;
+}
+
+.set-link:hover {
+  background: var(--cc-surface-hover);
+  border-color: var(--cc-border-strong);
+  text-decoration: none;
+}
+
+.set-link svg {
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+}
+
+.set-link > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+

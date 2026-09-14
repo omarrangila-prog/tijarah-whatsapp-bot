@@ -1,0 +1,1042 @@
+/*
+ * WA Command Center design layer.
+ *
+ * Extends the existing dashboard tokens in App.css rather than replacing them: the brand green
+ * stays the action colour (this is a WhatsApp product), and everything structural — surfaces,
+ * borders, elevation, radii — is a low-chroma neutral scale so dense screens read calmly. The
+ * accent scale below is used only for meaning (status, priority, identity), never for decoration.
+ *
+ * All tokens are defined on bare :root and REDEFINED in both dark blocks, so an explicit theme
+ * toggle and the OS preference both resolve to a complete palette.
+ */
+
+:root {
+  /* Surfaces, lightest to deepest. `raised` is what cards sit on; `sunken` is the app chrome. */
+  --cc-surface: #ffffff;
+  --cc-surface-raised: #ffffff;
+  --cc-surface-sunken: #f6f8fa;
+  --cc-surface-inset: #f1f4f8;
+  --cc-surface-hover: #f5f7fa;
+  --cc-surface-active: #eef2f7;
+
+  /* Two border weights: hairline for internal divisions, strong for component edges. */
+  --cc-border: #e6eaf0;
+  --cc-border-strong: #d5dbe4;
+
+  --cc-text: #0d1520;
+  --cc-text-secondary: #4c586a;
+  --cc-text-muted: #6b7787;
+  --cc-text-faint: #8c98a8;
+
+  /* Semantic accents. Each has a solid value, a tint for chips, and a text-safe twin. */
+  --cc-open: #2563eb;
+  --cc-open-soft: rgba(37, 99, 235, 0.1);
+  --cc-open-text: #1d4ed8;
+  --cc-waiting: #7c3aed;
+  --cc-waiting-soft: rgba(124, 58, 237, 0.1);
+  --cc-waiting-text: #6d28d9;
+  --cc-resolved: #059669;
+  --cc-resolved-soft: rgba(5, 150, 105, 0.1);
+  --cc-resolved-text: #047857;
+  --cc-urgent: #dc2626;
+  --cc-urgent-soft: rgba(220, 38, 38, 0.1);
+  --cc-urgent-text: #b91c1c;
+  --cc-high: #d97706;
+  --cc-high-soft: rgba(217, 119, 6, 0.1);
+  --cc-high-text: #b45309;
+
+  /* Radii. Rounded, but never pill-soft — this is a control surface, not a consumer app. */
+  --cc-radius-xs: 5px;
+  --cc-radius-sm: 7px;
+  --cc-radius: 9px;
+  --cc-radius-lg: 13px;
+
+  /* Elevation. Deliberately shallow: depth comes from the border and the surface step. */
+  --cc-shadow-xs: 0 1px 1px rgba(15, 23, 42, 0.04);
+  --cc-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --cc-shadow-md: 0 2px 4px rgba(15, 23, 42, 0.05), 0 6px 16px rgba(15, 23, 42, 0.07);
+  --cc-shadow-lg: 0 4px 8px rgba(15, 23, 42, 0.06), 0 16px 40px rgba(15, 23, 42, 0.12);
+
+  --cc-ring: 0 0 0 3px rgba(37, 211, 102, 0.22);
+
+  /* Layout constants shared by the inbox grid and the app shell.
+     Tuned so the CONVERSATION gets the space on a typical laptop: at 1600px the three rails
+     previously left the thread about 420px, narrower than the list beside it, which is the wrong
+     priority for the screen an agent spends the day in. */
+  --cc-rail: 208px;
+  --cc-list: 330px;
+  --cc-panel: 318px;
+  /* Height of the MOBILE header in the app shell; the desktop shell has none. */
+  --cc-header: 56px;
+}
+
+[data-theme='dark'] {
+  --cc-surface: #161b24;
+  --cc-surface-raised: #1b212c;
+  --cc-surface-sunken: #10141b;
+  --cc-surface-inset: #1f2634;
+  --cc-surface-hover: #202634;
+  --cc-surface-active: #262e3d;
+
+  --cc-border: #262e3b;
+  --cc-border-strong: #333d4d;
+
+  --cc-text: #eef2f7;
+  --cc-text-secondary: #b6c1d0;
+  --cc-text-muted: #8b97a8;
+  --cc-text-faint: #6b7787;
+
+  /* Lightened so each clears AA on the dark surfaces it lands on. */
+  --cc-open: #60a5fa;
+  --cc-open-soft: rgba(96, 165, 250, 0.16);
+  --cc-open-text: #93c5fd;
+  --cc-waiting: #a78bfa;
+  --cc-waiting-soft: rgba(167, 139, 250, 0.16);
+  --cc-waiting-text: #c4b5fd;
+  --cc-resolved: #34d399;
+  --cc-resolved-soft: rgba(52, 211, 153, 0.16);
+  --cc-resolved-text: #6ee7b7;
+  --cc-urgent: #f87171;
+  --cc-urgent-soft: rgba(248, 113, 113, 0.16);
+  --cc-urgent-text: #fca5a5;
+  --cc-high: #fbbf24;
+  --cc-high-soft: rgba(251, 191, 36, 0.16);
+  --cc-high-text: #fcd34d;
+
+  --cc-shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.3);
+  --cc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --cc-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.4);
+  --cc-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.45), 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --cc-surface: #161b24;
+    --cc-surface-raised: #1b212c;
+    --cc-surface-sunken: #10141b;
+    --cc-surface-inset: #1f2634;
+    --cc-surface-hover: #202634;
+    --cc-surface-active: #262e3d;
+
+    --cc-border: #262e3b;
+    --cc-border-strong: #333d4d;
+
+    --cc-text: #eef2f7;
+    --cc-text-secondary: #b6c1d0;
+    --cc-text-muted: #8b97a8;
+    --cc-text-faint: #6b7787;
+
+    --cc-open: #60a5fa;
+    --cc-open-soft: rgba(96, 165, 250, 0.16);
+    --cc-open-text: #93c5fd;
+    --cc-waiting: #a78bfa;
+    --cc-waiting-soft: rgba(167, 139, 250, 0.16);
+    --cc-waiting-text: #c4b5fd;
+    --cc-resolved: #34d399;
+    --cc-resolved-soft: rgba(52, 211, 153, 0.16);
+    --cc-resolved-text: #6ee7b7;
+    --cc-urgent: #f87171;
+    --cc-urgent-soft: rgba(248, 113, 113, 0.16);
+    --cc-urgent-text: #fca5a5;
+    --cc-high: #fbbf24;
+    --cc-high-soft: rgba(251, 191, 36, 0.16);
+    --cc-high-text: #fcd34d;
+
+    --cc-shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.3);
+    --cc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --cc-shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.4);
+    --cc-shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.45), 0 16px 40px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* ── Primitives ─────────────────────────────────────────────────────── */
+
+.cc-page {
+  padding: 1.5rem 1.75rem 2.5rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.cc-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.cc-page-title {
+  font-size: 1.5rem;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  color: var(--cc-text);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.cc-page-sub {
+  margin: 0.35rem 0 0;
+  font-size: 0.875rem;
+  color: var(--cc-text-muted);
+  max-width: 68ch;
+}
+
+.cc-card {
+  background: var(--cc-surface-raised);
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-lg);
+  box-shadow: var(--cc-shadow-sm);
+}
+
+.cc-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--cc-border);
+}
+
+.cc-card-title {
+  font-size: 0.875rem;
+  font-weight: 640;
+  color: var(--cc-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.cc-card-body {
+  padding: 1.1rem;
+}
+
+/* Section label above a group of fields or rows. */
+.cc-label {
+  font-size: 0.6875rem;
+  font-weight: 640;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cc-text-faint);
+  margin: 0 0 0.5rem;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+
+.cc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.44rem 0.8rem;
+  font-size: 0.8125rem;
+  font-weight: 560;
+  font-family: inherit;
+  line-height: 1.3;
+  border-radius: var(--cc-radius-sm);
+  border: 1px solid var(--cc-border-strong);
+  background: var(--cc-surface-raised);
+  color: var(--cc-text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.06s ease;
+}
+
+.cc-btn:hover:not(:disabled) {
+  background: var(--cc-surface-hover);
+  border-color: var(--cc-text-faint);
+}
+
+.cc-btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.cc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cc-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--cc-ring);
+}
+
+.cc-btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  /* Fixed near-black rather than a token: the button's fill is the brand green in BOTH themes, so
+     the label must not follow the theme's text colour or it inverts to white on green in dark. */
+  color: #06251a;
+}
+
+.cc-btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.cc-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--cc-text-secondary);
+}
+
+.cc-btn-ghost:hover:not(:disabled) {
+  background: var(--cc-surface-hover);
+  border-color: transparent;
+  color: var(--cc-text);
+}
+
+.cc-btn-danger {
+  color: var(--cc-urgent-text);
+  border-color: var(--cc-border-strong);
+}
+
+.cc-btn-danger:hover:not(:disabled) {
+  background: var(--cc-urgent-soft);
+  border-color: var(--cc-urgent);
+}
+
+.cc-btn-sm {
+  padding: 0.28rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.cc-btn-icon {
+  padding: 0.4rem;
+  border-radius: var(--cc-radius-sm);
+}
+
+/* ── Inputs ─────────────────────────────────────────────────────────── */
+
+.cc-input,
+.cc-select,
+.cc-textarea {
+  width: 100%;
+  /* Same reason as .cc-mini-select: the global `select` rule sets a much larger padding, which
+     made every command-center dropdown a different height from the inputs beside it. */
+  padding: 0.45rem 0.65rem;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  line-height: 1.45;
+  color: var(--cc-text);
+  background: var(--cc-surface);
+  border: 1px solid var(--cc-border-strong);
+  border-radius: var(--cc-radius-sm);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.cc-select {
+  padding-right: 1.9rem;
+  background-position: right 0.55rem center;
+  background-size: 14px;
+}
+
+.cc-textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.cc-input:focus,
+.cc-select:focus,
+.cc-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--cc-ring);
+}
+
+.cc-input::placeholder,
+.cc-textarea::placeholder {
+  color: var(--cc-text-faint);
+}
+
+.cc-field {
+  display: block;
+  margin-bottom: 0.85rem;
+}
+
+.cc-field > span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 560;
+  color: var(--cc-text-secondary);
+  margin-bottom: 0.3rem;
+}
+
+.cc-hint {
+  font-size: 0.75rem;
+  color: var(--cc-text-muted);
+  margin: 0.3rem 0 0;
+  line-height: 1.5;
+}
+
+/* ── Chips & badges ─────────────────────────────────────────────────── */
+
+.cc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--cc-radius-xs);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.55;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.cc-chip-open {
+  background: var(--cc-open-soft);
+  color: var(--cc-open-text);
+}
+.cc-chip-waiting {
+  background: var(--cc-waiting-soft);
+  color: var(--cc-waiting-text);
+}
+.cc-chip-resolved {
+  background: var(--cc-resolved-soft);
+  color: var(--cc-resolved-text);
+}
+.cc-chip-urgent {
+  background: var(--cc-urgent-soft);
+  color: var(--cc-urgent-text);
+}
+.cc-chip-high {
+  background: var(--cc-high-soft);
+  color: var(--cc-high-text);
+}
+.cc-chip-neutral {
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-secondary);
+  border-color: var(--cc-border);
+}
+
+/* A tag chip tints itself from its stored colour via an inline --tag custom property. */
+.cc-chip-tag {
+  background: color-mix(in srgb, var(--tag, #6366f1) 13%, transparent);
+  color: var(--tag, #6366f1);
+  border-color: color-mix(in srgb, var(--tag, #6366f1) 28%, transparent);
+}
+
+/* ── Avatars ────────────────────────────────────────────────────────── */
+
+.cc-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 640;
+  letter-spacing: 0.01em;
+  color: #fff;
+  background: var(--cc-text-faint);
+  object-fit: cover;
+  user-select: none;
+}
+
+.cc-avatar-sm {
+  width: 22px;
+  height: 22px;
+  font-size: 0.625rem;
+}
+
+.cc-avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: 1.125rem;
+}
+
+/* ── States ─────────────────────────────────────────────────────────── */
+
+.cc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.6rem;
+  padding: 3rem 1.5rem;
+  color: var(--cc-text-muted);
+}
+
+.cc-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--cc-radius-lg);
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-faint);
+  margin-bottom: 0.2rem;
+}
+
+.cc-empty h3 {
+  font-size: 0.9375rem;
+  font-weight: 640;
+  color: var(--cc-text);
+  margin: 0;
+}
+
+.cc-empty p {
+  margin: 0;
+  font-size: 0.8125rem;
+  max-width: 42ch;
+  line-height: 1.55;
+}
+
+.cc-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: var(--cc-radius);
+  background: var(--cc-urgent-soft);
+  border: 1px solid color-mix(in srgb, var(--cc-urgent) 30%, transparent);
+  color: var(--cc-urgent-text);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.cc-error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Skeletons. One shimmer keyframe, reused at every size. */
+.cc-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--cc-surface-inset) 25%,
+    var(--cc-surface-hover) 37%,
+    var(--cc-surface-inset) 63%
+  );
+  background-size: 400% 100%;
+  animation: cc-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--cc-radius-xs);
+}
+
+@keyframes cc-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* Respect a reduced-motion preference: the shimmer becomes a flat placeholder. */
+@media (prefers-reduced-motion: reduce) {
+  .cc-skeleton {
+    animation: none;
+  }
+  .cc-btn,
+  .cc-input,
+  .cc-select,
+  .cc-textarea {
+    transition: none;
+  }
+}
+
+/* ── Health dot ─────────────────────────────────────────────────────── */
+
+.cc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--cc-text-faint);
+}
+
+.cc-dot-ready {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent);
+}
+.cc-dot-warn {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 20%, transparent);
+}
+.cc-dot-down {
+  background: var(--error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────── */
+
+.cc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.cc-table th {
+  text-align: left;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.6875rem;
+  font-weight: 640;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cc-text-faint);
+  border-bottom: 1px solid var(--cc-border);
+  white-space: nowrap;
+}
+
+.cc-table td {
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid var(--cc-border);
+  color: var(--cc-text-secondary);
+  vertical-align: middle;
+}
+
+.cc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.cc-table tbody tr:hover td {
+  background: var(--cc-surface-hover);
+}
+
+/* Wide tables scroll inside their own container — the page body never scrolls sideways. */
+.cc-table-scroll {
+  overflow-x: auto;
+}
+
+/* Numeric columns line up when the digits are tabular. */
+.cc-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Utility ────────────────────────────────────────────────────────── */
+
+.cc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cc-row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cc-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cc-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.cc-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.cc-spin {
+  animation: cc-rotate 1s linear infinite;
+}
+
+@keyframes cc-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+
+/* ── Shared page furniture ──────────────────────────────────────────────
+   Classes below were originally page-local but are used by more than one surface. They live here
+   rather than in any one page stylesheet: two pages defining the same bare class leak across each
+   other depending on which route was visited last, which is exactly the cascade collision the
+   pages/ scoping guard exists to prevent. */
+.cc-range {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--cc-radius-sm);
+  background: var(--cc-surface-inset);
+  border: 1px solid var(--cc-border);
+}
+
+.cc-range-btn {
+  padding: 0.28rem 0.65rem;
+  border: none;
+  border-radius: var(--cc-radius-xs);
+  background: transparent;
+  color: var(--cc-text-muted);
+  font-size: 0.75rem;
+  font-weight: 560;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.cc-range-btn:hover {
+  color: var(--cc-text);
+}
+
+.cc-range-btn.is-active {
+  background: var(--cc-surface-raised);
+  color: var(--cc-text);
+  box-shadow: var(--cc-shadow-xs);
+}
+
+
+/* KPI grid.
+   An explicit column count rather than auto-fit: there are ten cards, and auto-fit packed seven
+   onto the first row and three onto the second, leaving a ragged hole. Five columns divide them
+   into two even rows, and each breakpoint below keeps that evenness rather than maximising density. */
+.cc-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (max-width: 1500px) {
+  .cc-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1150px) {
+  .cc-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .cc-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 460px) {
+  .cc-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.cc-kpi {
+  background: var(--cc-surface-raised);
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-lg);
+  padding: 0.8rem 0.9rem;
+  box-shadow: var(--cc-shadow-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.cc-kpi-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.cc-kpi-label {
+  font-size: 0.6875rem;
+  font-weight: 560;
+  color: var(--cc-text-muted);
+  letter-spacing: 0.01em;
+}
+
+.cc-kpi-icon {
+  color: var(--cc-text-faint);
+  display: inline-flex;
+}
+
+.cc-kpi-value {
+  font-size: 1.5rem;
+  font-weight: 660;
+  letter-spacing: -0.03em;
+  color: var(--cc-text);
+  line-height: 1.15;
+}
+
+.cc-kpi-hint {
+  font-size: 0.6875rem;
+  color: var(--cc-text-faint);
+  line-height: 1.4;
+}
+
+/* A tinted left edge carries the tone without colouring the whole card. */
+.cc-kpi-open {
+  box-shadow: inset 3px 0 0 var(--cc-open), var(--cc-shadow-xs);
+}
+.cc-kpi-waiting {
+  box-shadow: inset 3px 0 0 var(--cc-waiting), var(--cc-shadow-xs);
+}
+.cc-kpi-resolved {
+  box-shadow: inset 3px 0 0 var(--cc-resolved), var(--cc-shadow-xs);
+}
+.cc-kpi-urgent {
+  box-shadow: inset 3px 0 0 var(--cc-urgent), var(--cc-shadow-xs);
+}
+
+
+/* Recharts renders its own SVG text; align it with the app's type colours. */
+.recharts-cartesian-axis-tick-value,
+.recharts-legend-item-text {
+  font-family: inherit;
+}
+
+.cc-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.55rem;
+  height: 32px;
+  border-radius: var(--cc-radius-sm);
+  border: 1px solid var(--cc-border-strong);
+  background: var(--cc-surface-inset);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.cc-search:focus-within {
+  border-color: var(--primary);
+  box-shadow: var(--cc-ring);
+  background: var(--cc-surface);
+}
+
+.cc-search svg {
+  color: var(--cc-text-faint);
+  flex-shrink: 0;
+}
+
+.cc-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  color: var(--cc-text);
+}
+
+/* Hide the browser's own clear affordance — the component provides one that matches. */
+.cc-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.cc-search-clear {
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--cc-text-faint);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.cc-search-clear:hover {
+  color: var(--cc-text);
+  background: var(--cc-surface-hover);
+}
+
+
+/* Compact inline dropdown.
+   `width` and the padding are overridden explicitly because index.css sets a GLOBAL
+   `select { width: 100%; padding: 0.75rem 2.5rem … }` for the full-size form controls. Without
+   these, every compact select in the command center stretched to the width of its container and
+   stacked — which is what turned the inbox's status/priority/assignee row into three full-width
+   boxes. `padding-right` keeps room for the global chevron background-image. */
+.cc-mini-select {
+  width: auto;
+  max-width: 100%;
+  font-size: 0.6875rem;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 0.26rem 1.5rem 0.26rem 0.45rem;
+  background-position: right 0.35rem center;
+  background-size: 12px;
+  border-radius: var(--cc-radius-xs);
+  border: 1px solid var(--cc-border-strong);
+  background-color: var(--cc-surface);
+  color: var(--cc-text-secondary);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.cc-mini-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--cc-ring);
+}
+
+.cc-mini-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+
+.cc-tag-toggle {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--cc-radius-xs);
+  border: 1px solid color-mix(in srgb, var(--tag, #6366f1) 30%, transparent);
+  background: transparent;
+  color: var(--tag, #6366f1);
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.cc-tag-toggle:hover,
+.cc-tag-toggle.is-active {
+  background: color-mix(in srgb, var(--tag, #6366f1) 16%, transparent);
+}
+
+.cc-tag-toggle.is-active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tag, #6366f1) 45%, transparent);
+}
+
+
+.cc-status-pill {
+  font-size: 0.625rem;
+  font-weight: 640;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.cc-status-pill.is-open {
+  background: var(--cc-open-soft);
+  color: var(--cc-open-text);
+}
+.cc-status-pill.is-waiting {
+  background: var(--cc-waiting-soft);
+  color: var(--cc-waiting-text);
+}
+.cc-status-pill.is-resolved {
+  background: var(--cc-resolved-soft);
+  color: var(--cc-resolved-text);
+}
+
+
+.cc-consent {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--cc-radius-sm);
+  font-size: 0.75rem;
+  border: 1px solid transparent;
+}
+
+.cc-consent.is-resolved {
+  background: var(--cc-resolved-soft);
+  color: var(--cc-resolved-text);
+  border-color: color-mix(in srgb, var(--cc-resolved) 25%, transparent);
+}
+
+.cc-consent.is-urgent {
+  background: var(--cc-urgent-soft);
+  color: var(--cc-urgent-text);
+  border-color: color-mix(in srgb, var(--cc-urgent) 25%, transparent);
+}
+
+.cc-consent.is-neutral {
+  background: var(--cc-surface-inset);
+  color: var(--cc-text-secondary);
+  border-color: var(--cc-border);
+}
+
+.cc-consent-source {
+  display: block;
+  font-size: 0.6875rem;
+  opacity: 0.85;
+  font-weight: 400;
+  margin-top: 1px;
+}
+
+
+.cc-chip-x {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0 0 1px;
+  font-size: 0.875rem;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.cc-chip-x:hover {
+  opacity: 1;
+}
+
+
+.cc-swatch-btns {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.cc-swatch-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cc-swatch-btn.is-active {
+  border-color: var(--cc-text);
+  box-shadow: 0 0 0 2px var(--cc-surface);
+}
+
+
+code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.9em;
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  background: var(--cc-surface-inset);
+  border: 1px solid var(--cc-border);
+}
+
+/* Muted value inside a definition list — used by the inbox panel and the contacts detail. */
+.cc-muted {
+  color: var(--cc-text-faint);
+}
+
+/* ── Modal ──────────────────────────────────────────────────────────────
+   Shared shell for the command center's dialogs. */
+
+.cc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 12, 22, 0.6);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 200;
+}
+
+.cc-modal {
+  width: min(480px, 100%);
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
+  box-shadow: var(--cc-shadow-lg);
+}
