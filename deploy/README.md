@@ -14,11 +14,11 @@ $EDITOR .env                     # fill it in
 
 ## Getting it onto the server
 
-The work is on branch `tijarah-bot`. On the server:
+The repository is `github.com/omarrangila-prog/tijarah-whatsapp-bot` (private). On the server:
 
 ```bash
-git clone -b tijarah-bot <your-repo-url> tijarah-bot
-cd tijarah-bot/deploy
+git clone https://github.com/omarrangila-prog/tijarah-whatsapp-bot.git
+cd tijarah-whatsapp-bot/deploy
 ./deploy.sh          # creates .env from the template and stops — fill it in
 ./deploy.sh          # preflight, build, start
 ```
@@ -27,7 +27,7 @@ To hand the client a copy without git, `git archive` from the repository root pr
 clean tarball with nothing ignored in it — no keys, no databases, no logs:
 
 ```bash
-git archive --format=tar.gz -o tijarah-bot.tar.gz tijarah-bot
+git archive --format=zip --prefix=tijarah-whatsapp-bot/ -o tijarah-whatsapp-bot.zip main
 ```
 
 ## Before you go live
