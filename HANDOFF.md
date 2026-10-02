@@ -23,6 +23,10 @@ The three phases share one WhatsApp connection, one permission layer and one aud
 
 ## 2. Run it
 
+> Handing this to someone to install on their own server? **`INSTALL.md`** is written for them:
+> requirements, Docker and non-Docker routes, what it does and does not touch on the host, and
+> how to remove it cleanly.
+
 ### Locally (no Docker)
 
 ```bash

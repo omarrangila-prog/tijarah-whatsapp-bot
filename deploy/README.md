@@ -14,6 +14,10 @@ $EDITOR .env                     # fill it in
 
 ## Getting it onto the server
 
+For a full install guide written for whoever runs the server — requirements, the non-Docker
+route, and what it does and does not touch on the host — see **`INSTALL.md`** in the repository
+root.
+
 The repository is `github.com/omarrangila-prog/tijarah-whatsapp-bot` (private). On the server:
 
 ```bash
