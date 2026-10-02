@@ -48,7 +48,7 @@ export interface ReasoningRequest {
    * from leaking upward as a second entry point.
    */
   context?: {
-    senderRole: 'admin' | 'staff' | 'customer' | 'unknown';
+    senderRole: 'admin' | 'staff' | 'client' | 'customer' | 'unknown';
     /**
      * Whether this person is part-way through composing a document.
      *

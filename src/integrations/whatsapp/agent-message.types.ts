@@ -28,7 +28,12 @@ export type AgentChannel = 'whatsapp';
  * `admin` and `staff` map onto the existing `ApiKeyRole` hierarchy; `customer` and `unknown`
  * have no key at all and are the reason the customer-facing tool set exists separately.
  */
-export type SenderRole = 'admin' | 'staff' | 'customer' | 'unknown';
+/**
+ * `client` is a Tijarah Books user: a number mapped to a company in `bot_users` or resolved
+ * from the host's client directory. Not staff — they may not reach the business's other
+ * customers — and not a receivables customer either: their books are their own company's.
+ */
+export type SenderRole = 'admin' | 'staff' | 'client' | 'customer' | 'unknown';
 
 export type AgentMessageType = 'text' | 'image' | 'document' | 'audio' | 'video' | 'location' | 'other';
 

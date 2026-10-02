@@ -217,6 +217,18 @@ export class MockReasoningProvider implements ReasoningProvider {
 
       case 'help':
       default:
+        // A Tijarah client is not shown the operator's command list — none of it is theirs.
+        if (role === 'client') {
+          return this.finish(
+            [
+              'I can help with:',
+              '• a ledger or report — e.g. "send me the customer ledger for C-1005", "trial balance for this year"',
+              '• a new document — e.g. "create a sale invoice for Ahmed Traders, 10 shirts at 1500"',
+              '',
+              'Everything is for your own company. A document you create waits on the approval screen in Tijarah Books.',
+            ].join('\n'),
+          );
+        }
         return this.finish(
           [
             'I can help with:',

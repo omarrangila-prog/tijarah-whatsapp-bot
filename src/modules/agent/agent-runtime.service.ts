@@ -362,25 +362,17 @@ export class AgentRuntime {
         return await this.finish(record, reply, 'halted', settings.haltedReason, startedAt);
       }
 
-      /* --- 3. unknown senders --- */
-      if (message.senderRole === 'unknown') {
-        if (settings.unknownSenderPolicy === 'ignore') {
-          return await this.finish(record, silent('Unknown sender ignored.'), 'ignored', 'Unknown sender', startedAt);
-        }
-        const reply = plain(
-          settings.unknownSenderMessage ??
-            'Thanks for your message. This number is monitored by our team and someone will reply shortly.',
-        );
-        return await this.finish(record, reply, 'ok', 'Unknown sender welcomed', startedAt);
-      }
-
       /*
-       * --- 3b. registration, for a deployment that serves a host system's clients ---
+       * --- 3. registration, for a deployment that serves a host system's clients ---
        *
-       * The Tijarah bot is used by Tijarah Books' own clients, each mapped to their company in
-       * `bot_users`. Someone not in that table is not a customer to be helped with their
-       * balance — the receivables persona — but a stranger to a bot that would otherwise show
-       * them a company's books. They are told how to get registered, and nothing else.
+       * Before the unknown-sender policy, on purpose. A Tijarah client messaging for the first
+       * time is not in the CRM and not on the admin list, so the contact mapper calls them
+       * "unknown" — and the ignore policy would drop them silently, before anyone had asked
+       * whether their number is on a Tijarah account. So the registry is consulted first: a
+       * mapped number becomes a `client` for the rest of the turn, with its own tools and its
+       * own persona; a number on two accounts is asked which; anyone else is told how to get
+       * registered — and told, rather than ignored, because to them silence reads as a dead
+       * number, not as a policy.
        *
        * Opt-in, because the receivables deployment genuinely does serve unregistered customers.
        */
@@ -394,6 +386,20 @@ export class AgentRuntime {
           const outcome = gate.reason === 'Business chosen' ? 'ok' : 'refused';
           return await this.finish(record, plain(gate.reply), outcome, gate.reason, startedAt);
         }
+        message = { ...message, senderRole: 'client' };
+        record.senderRole = 'client';
+      }
+
+      /* --- 3b. unknown senders --- */
+      if (message.senderRole === 'unknown') {
+        if (settings.unknownSenderPolicy === 'ignore') {
+          return await this.finish(record, silent('Unknown sender ignored.'), 'ignored', 'Unknown sender', startedAt);
+        }
+        const reply = plain(
+          settings.unknownSenderMessage ??
+            'Thanks for your message. This number is monitored by our team and someone will reply shortly.',
+        );
+        return await this.finish(record, reply, 'ok', 'Unknown sender welcomed', startedAt);
       }
 
       /*
@@ -673,8 +679,9 @@ export class AgentRuntime {
     const effectiveRole = PermissionGuard.apiRoleFor(senderRole);
     const isCustomer = senderRole === 'customer' || senderRole === 'unknown';
     return this.registry.list().filter(tool => {
-      // The customer fence, applied to the offer and not only to the verdict.
+      // The customer and client fences, applied to the offer and not only to the verdict.
       if (isCustomer && !PermissionGuard.isCustomerAllowed(tool.name)) return false;
+      if (senderRole === 'client' && !PermissionGuard.isClientAllowed(tool.name)) return false;
       if (restrictTools && tool.tier === 'write') return false;
       if (!tool.requiredRole) return true;
       return roleRank(effectiveRole) >= roleRank(tool.requiredRole);

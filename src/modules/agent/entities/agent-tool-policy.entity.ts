@@ -27,7 +27,7 @@ export class AgentToolPolicy {
    * the policy is keyed on both.
    */
   @Column({ type: 'varchar', length: 16 })
-  senderRole!: 'admin' | 'staff' | 'customer' | 'unknown' | 'system';
+  senderRole!: 'admin' | 'staff' | 'client' | 'customer' | 'unknown' | 'system';
 
   @Column({ type: 'varchar', length: 24, default: 'REQUIRE_APPROVAL' })
   level!: ToolPermissionLevel;

@@ -67,6 +67,29 @@ export interface PermissionRequest {
  * statement" ends up here; a customer asking to message someone else does not, whatever
  * words they use.
  */
+/**
+ * Tools a Tijarah client may cause to run, and nothing else.
+ *
+ * Every one of these is `senderScoped`, so it acts on the client's own company and nobody
+ * else's. What is absent matters as much: no contact search, no sending to other numbers, no
+ * receivables self-service (that is a different business's ledger, not theirs).
+ */
+const CLIENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+  'ListAccountingReports',
+  'RequestAccountingReport',
+  'ListCreatableDocuments',
+  'StartDocumentDraft',
+  'SetDraftField',
+  'AnswerDraftPrompt',
+  'AddDraftLineItem',
+  'ComposeDocument',
+  'ReviewDraft',
+  'SubmitDraftForApproval',
+  'CancelDraft',
+  'AgentRequestHuman',
+  'AgentOptOut',
+]);
+
 const CUSTOMER_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   'AgentSelfStatement',
   'AgentSelfInvoice',
@@ -127,8 +150,11 @@ export class PermissionGuard {
     switch (senderRole) {
       case 'admin':
         return ApiKeyRole.ADMIN;
+      // A client's tools are declared at OPERATOR tier; `CLIENT_ALLOWED_TOOLS` above is what
+      // keeps a client to the Tijarah set, not the rank.
       case 'staff':
       case 'system':
+      case 'client':
         return ApiKeyRole.OPERATOR;
       default:
         // Customers and strangers get the lowest rung. Their tools are serviced by the
@@ -146,6 +172,11 @@ export class PermissionGuard {
    */
   static isCustomerAllowed(toolName: string): boolean {
     return CUSTOMER_ALLOWED_TOOLS.has(toolName);
+  }
+
+  /** Whether a Tijarah client may use this tool at all. */
+  static isClientAllowed(toolName: string): boolean {
+    return CLIENT_ALLOWED_TOOLS.has(toolName);
   }
 
   async evaluate(request: PermissionRequest): Promise<PermissionVerdict> {
@@ -190,6 +221,15 @@ export class PermissionGuard {
           };
         }
       }
+    }
+
+    /* 3. The client fence: their own company's books and documents, nothing else. */
+    if (request.senderRole === 'client' && !CLIENT_ALLOWED_TOOLS.has(request.toolName)) {
+      return {
+        decision: 'denied',
+        reason: 'That is not something this number is allowed to ask for.',
+        policyLevel: 'DENY',
+      };
     }
 
     /* 3. The customer fence. */

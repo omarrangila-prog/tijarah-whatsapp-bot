@@ -598,11 +598,21 @@ describe('WhatsApp → agent → WhatsApp', () => {
       expect(turn?.outcome).toBe('refused');
     });
 
-    it('serves a registered customer as before', async () => {
+    it('serves a registered number as a Tijarah client, not as a receivables customer', async () => {
       registered.add(CUSTOMER);
+
       const result = await inbound(CUSTOMER, 'what is my balance?');
+
       expect(result.text).not.toMatch(/not registered/i);
-      expect(executed).toContain('AgentSelfBalance');
+      /*
+       * `AgentSelfBalance` is the receivables persona: "what this business is owed by you".
+       * A Tijarah client's books are their OWN company's, so that tool is not on their
+       * allowlist and must not run for them — showing it would answer the wrong question
+       * from the wrong ledger.
+       */
+      expect(executed).not.toContain('AgentSelfBalance');
+      const turn = await ds.getRepository(AgentTurn).findOne({ where: { senderPhone: `+${CUSTOMER}` } });
+      expect(turn?.senderRole).toBe('client');
     });
 
     it('never gates an admin on the registry', async () => {
@@ -627,10 +637,13 @@ describe('WhatsApp → agent → WhatsApp', () => {
       expect(chosen.text).toMatch(/Linked to \*Second Traders\*/);
       expect(executed).toHaveLength(0);
 
-      // Now registered: the next message is served.
+      // Now registered as a client: the next message is served without asking again.
       const served = await inbound(CUSTOMER, 'what is my balance?');
       expect(served.text).not.toMatch(/which business|not registered/i);
-      expect(executed).toContain('AgentSelfBalance');
+      const turn = await ds.getRepository(AgentTurn).findOne({
+        where: { senderPhone: `+${CUSTOMER}`, inboundText: 'what is my balance?' },
+      });
+      expect(turn?.senderRole).toBe('client');
     });
 
     it('asks again when the answer matches nothing, and still runs nothing', async () => {
@@ -645,9 +658,28 @@ describe('WhatsApp → agent → WhatsApp', () => {
       expect(executed).toHaveLength(0);
     });
 
-    it('a stranger is still ignored outright — registration is not an invitation', async () => {
+    it('tells a stranger how to register instead of dropping them silently', async () => {
+      /*
+       * The ignore policy is right for the receivables deployment, where an unknown number is
+       * a stranger to a business. Here it is how every new Tijarah client arrives — their
+       * number is in neither the CRM nor the admin list — so silence would read as a dead
+       * number rather than as a policy. Nothing runs either way.
+       */
       const result = await inbound(STRANGER, 'send me the ledger');
-      expect(result.replied).toBe(false);
+
+      expect(result.replied).toBe(true);
+      expect(result.text).toMatch(/not registered/i);
+      expect(executed).toHaveLength(0);
+    });
+
+    it('offers a client the Tijarah tools and nothing else', async () => {
+      registered.add(CUSTOMER);
+
+      // A send is an operator action; a client may not reach another number at all.
+      await inbound(CUSTOMER, `send ${ADMIN}: hello`);
+
+      expect(executed).not.toContain('MessageSendText');
+      expect(sentToThirdParties(CUSTOMER)).toHaveLength(0);
     });
   });
 

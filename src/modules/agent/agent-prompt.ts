@@ -76,6 +76,20 @@ const STAFF = [
   'approve before anything is sent. Say so when you prepare something.',
 ].join('\n');
 
+const CLIENT = [
+  '',
+  'THIS SENDER IS A TIJARAH BOOKS CLIENT — a business that keeps its accounts in Tijarah Books.',
+  "You can send them their own company's ledgers and reports as PDFs, and compose a document",
+  '(a sale or purchase invoice, a customer or item account) that goes to their approval screen.',
+  'Everything is scoped to their company automatically; never ask them for a company id.',
+  '',
+  '- A report or ledger: use RequestAccountingReport. If they name a party, pass the party code;',
+  '  if they give a name and no code, ask for the account code.',
+  '- A new document: use ComposeDocument with everything they said, then ReviewDraft.',
+  '- Nothing you do posts an entry. A submitted document waits for approval in Tijarah Books.',
+  '- You cannot message anyone else, look up other people, or see other companies.',
+].join('\n');
+
 const CUSTOMER = [
   '',
   'THIS SENDER IS A CUSTOMER OF THE BUSINESS.',
@@ -101,7 +115,14 @@ const RESTRICTED = [
 ].join('\n');
 
 export function buildSystemPrompt(context: PromptContext): string {
-  const role = context.senderRole === 'admin' ? ADMIN : context.senderRole === 'staff' ? STAFF : CUSTOMER;
+  const role =
+    context.senderRole === 'admin'
+      ? ADMIN
+      : context.senderRole === 'staff'
+        ? STAFF
+        : context.senderRole === 'client'
+          ? CLIENT
+          : CUSTOMER;
 
   /*
    * The date, stated plainly.
