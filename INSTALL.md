@@ -7,6 +7,9 @@ else on the machine touched) or **direct Node** (if Docker is not an option).
 
 ## What it needs
 
+> A tickable list of every dependency — host, OS packages, Node packages, external services —
+> is in **`DEPENDENCIES.md`**.
+
 |             |                                                                                                                                   |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | **OS**      | Any Linux with Docker. Ubuntu 22.04/24.04 and Debian 12 are what it was built against.                                            |
@@ -113,7 +116,7 @@ node -v      # must be >= 22.13
 
 ```bash
 sudo apt-get install -y python3 make g++ \
-  chromium fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 \
+  chromium fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 libatk1.0-0 \
   libcups2 libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 \
   libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 xdg-utils \
   sqlite3 ffmpeg curl

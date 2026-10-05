@@ -25,7 +25,7 @@ The three phases share one WhatsApp connection, one permission layer and one aud
 
 > Handing this to someone to install on their own server? **`INSTALL.md`** is written for them:
 > requirements, Docker and non-Docker routes, what it does and does not touch on the host, and
-> how to remove it cleanly.
+> how to remove it cleanly. **`DEPENDENCIES.md`** is the tickable checklist of what it needs.
 
 ### Locally (no Docker)
 
