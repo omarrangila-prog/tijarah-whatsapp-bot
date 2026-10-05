@@ -2826,10 +2826,11 @@ describe('SessionService', () => {
     };
 
     // 'logged out' is the Baileys spelling: baileys-lifecycle reports a WhatsApp-originated
-    // loggedOut (401) close through this same callback with that exact string, and it is the ONLY
-    // reason that adapter ever passes here. Without it the audit row would exist for whatsapp-web.js
-    // sessions and silently not for Baileys ones — the engine asymmetry this test exists to prevent.
-    it.each(['LOGOUT', 'UNPAIRED', 'UNPAIRED_IDLE', 'logged out'])(
+    // loggedOut (401) close through this same callback with that exact string. Without it the audit
+    // row would exist for whatsapp-web.js sessions and silently not for Baileys ones — the engine
+    // asymmetry this test exists to prevent. 'bad session' is the other Baileys terminal: a run of
+    // badSession (500) closes showing the saved login is corrupt, already wiped, needing a fresh QR.
+    it.each(['LOGOUT', 'UNPAIRED', 'UNPAIRED_IDLE', 'logged out', 'bad session'])(
       'writes a durable audit record for a terminal unlink (%s)',
       async reason => {
         const callbacks = await startAndCapture();
@@ -2869,7 +2870,7 @@ describe('SessionService', () => {
     // the boot auto-start query and the takeover sweep (both key on a non-null phone), exactly as
     // logout() already ensures. The in-process reconnect still shows one QR: scheduleReconnect gets
     // the row object captured before the write, so its previouslyLinked flag survives.
-    it.each(['LOGOUT', 'UNPAIRED', 'UNPAIRED_IDLE', 'logged out'])(
+    it.each(['LOGOUT', 'UNPAIRED', 'UNPAIRED_IDLE', 'logged out', 'bad session'])(
       'clears phone on a terminal unlink (%s) without touching the captured reconnect row',
       async reason => {
         const callbacks = await startAndCapture();

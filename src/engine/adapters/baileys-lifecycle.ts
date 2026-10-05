@@ -109,6 +109,11 @@ export class BaileysLifecycle {
   /** A close this long after the previous close means the connection had been healthy in between —
    *  the backoff counter restarts from scratch instead of inheriting an old incident's attempts. */
   private static readonly RECONNECT_STABILITY_RESET_MS = 5 * 60_000;
+  /**
+   * How many `badSession` (500) closes in a row, with no successful 'open' between them, before the
+   * saved login is treated as dead. See the 500 branch in the close handler for why it is not 1.
+   */
+  private static readonly BAD_SESSION_LIMIT = 3;
 
   /** Live Baileys socket, null when disconnected. Public so the adapter's `sock` accessor can alias
    *  it (an unmodified spec pokes `adapter.sock` through a cast; delegate hosts read it live). */
@@ -125,6 +130,8 @@ export class BaileysLifecycle {
   private readonly versionResolver: BaileysVersionResolver;
   private connecting = false;
   private reconnectAttempts = 0;
+  /** `badSession` closes since the connection last opened. Reset only by a successful 'open'. */
+  private consecutiveBadSessions = 0;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   /** Date.now() of the last close that scheduled a reconnect — input to the stability reset. */
   private lastConnectionCloseAt = 0;
@@ -390,6 +397,7 @@ export class BaileysLifecycle {
       this.pushName = this.sock?.user?.name ?? null;
       // I4: reset the reconnect counter on a successful connection.
       this.reconnectAttempts = 0;
+      this.consecutiveBadSessions = 0;
       // Small backward buffer for clock skew between this host and WhatsApp's server (messageTimestamp
       // is WA's clock, Date.now() is ours) — without it, a message sent right at reconnect time could
       // land a couple seconds "before" connectedAt and be misjudged as history.
@@ -467,6 +475,34 @@ export class BaileysLifecycle {
         return;
       }
 
+      /*
+       * badSession (500): transient once, terminal when it repeats.
+       *
+       * Baileys uses 500 as its catch-all for any stream error WhatsApp sends without a code
+       * (`getErrorCodeFromStreamError` falls back to `DisconnectReason.badSession`), so a single
+       * one can be a genuine server hiccup and is retried like any other drop. But when the saved
+       * login is itself corrupt, every reconnect reloads the same files and gets 500 again — and
+       * because a reconnect with credentials on disk never emits a QR, the session loops forever
+       * with no way for the operator to re-pair. That was the first real deployment's symptom.
+       *
+       * So: BAD_SESSION_LIMIT of them with no 'open' in between means the login is dead. It is
+       * discarded exactly as a WhatsApp logout is — the same teardown, the same terminal-unlink
+       * handling in the session service — which is what produces one fresh QR. Counted after the
+       * duplicate-close guard above, so Baileys emitting two closes for one drop cannot trip it.
+       */
+      if (statusCode === (this.lib?.DisconnectReason.badSession ?? 500)) {
+        this.consecutiveBadSessions += 1;
+        if (this.consecutiveBadSessions >= BaileysLifecycle.BAD_SESSION_LIMIT) {
+          this.consecutiveBadSessions = 0;
+          this.host.logger.warn(
+            'Baileys reported a bad session repeatedly without connecting; discarding the saved login so a fresh QR can be scanned',
+            { statusCode, closes: BaileysLifecycle.BAD_SESSION_LIMIT },
+          );
+          void this.handleRemoteLoggedOut('bad session');
+          return;
+        }
+      }
+
       // Stability reset: a close >5 min after the previous one means the connection had been
       // healthy in between — start the backoff fresh instead of inheriting the old counter.
       const now = Date.now();
@@ -534,7 +570,8 @@ export class BaileysLifecycle {
   /**
    * Schedule the next reconnect attempt with capped exponential backoff (1 s doubling up to a 60 s
    * cap, plus up to 1 s jitter). Deliberately NO attempt ceiling: transient drops retry forever —
-   * only loggedOut (401), forbidden (403), and connectionReplaced (440) are terminal. A connect()
+   * only loggedOut (401), forbidden (403), connectionReplaced (440), and a run of badSession (500)
+   * closes with no 'open' between them are terminal. A connect()
    * failure inside the attempt is just a failed attempt: warn and schedule the next one.
    */
   private scheduleReconnect(): void {
@@ -691,7 +728,12 @@ export class BaileysLifecycle {
    * NAME). On success the engine reports DISCONNECTED + onDisconnected('logged out'); on failure it
    * reports FAILED + onError (terminal — a reconnect with known-invalid auth would loop forever).
    */
-  private async handleRemoteLoggedOut(): Promise<void> {
+  /**
+   * @param reason What to report through onDisconnected. Both values are in the session service's
+   * TERMINAL_UNLINK_REASONS, which is what makes it audit the unlink, stop resurrecting the
+   * session on the next boot, and show one fresh QR.
+   */
+  private async handleRemoteLoggedOut(reason: 'logged out' | 'bad session' = 'logged out'): Promise<void> {
     // Synchronous teardown BEFORE any await.
     this.setStatus(EngineStatus.DISCONNECTED);
     const dead = this.sock;
@@ -709,13 +751,13 @@ export class BaileysLifecycle {
         // clean disconnect (the credentials did not actually get wiped).
         this.setStatus(EngineStatus.FAILED);
         this.host.getOnError()?.(
-          `Logged out by WhatsApp, but the local credential cleanup failed: ${
+          `${reason === 'bad session' ? 'Saved WhatsApp login was rejected as a bad session' : 'Logged out by WhatsApp'}, but the local credential cleanup failed: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
         return;
       }
-      this.host.getOnDisconnected()?.('logged out');
+      this.host.getOnDisconnected()?.(reason);
     })();
     // Register the destructive promise the instant it begins (NOT guarded on this engine still being
     // live): the rm targets the session NAME's auth dir and would race a (re)created session under

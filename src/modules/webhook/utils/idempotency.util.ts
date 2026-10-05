@@ -85,7 +85,8 @@ export function generateIdempotencyKey(event: string, data: Record<string, unkno
 
     case 'session.disconnected':
       // Salted so repeat disconnects stay distinct — `reason` alone can be a constant (Baileys
-      // always sends 'logged out'), which would otherwise collapse every disconnect onto one key.
+      // sends a fixed string per terminal cause), which would otherwise collapse every disconnect
+      // onto one key.
       return `disc_${toStr(data.sessionId)}_${hashData({ reason: data.reason })}${occurrence}`;
 
     case 'session.restriction':

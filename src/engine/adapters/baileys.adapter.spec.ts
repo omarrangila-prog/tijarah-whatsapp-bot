@@ -120,7 +120,7 @@ jest.mock('@whiskeysockets/baileys', () => ({
   normalizeMessageContent: jest.fn((c: unknown) => c),
   // The pinned protocol node targets this JID; exported from the real module's WABinary surface.
   S_WHATSAPP_NET: '@s.whatsapp.net',
-  DisconnectReason: { loggedOut: 401, forbidden: 403, restartRequired: 515, connectionReplaced: 440 },
+  DisconnectReason: { loggedOut: 401, forbidden: 403, badSession: 500, restartRequired: 515, connectionReplaced: 440 },
   proto: {
     Message: {
       ProtocolMessage: {
@@ -909,6 +909,102 @@ describe('BaileysAdapter reconnect policy — unlimited backoff (I4 hardening)',
     fireRecoverableClose();
     await jest.advanceTimersByTimeAsync(1_500);
     expect(baileys().default).toHaveBeenCalledTimes(2);
+  });
+
+  /*
+   * badSession (500) is Baileys' catch-all for an uncoded stream error, so one is retried like any
+   * drop — but a run of them with no 'open' between means the saved login is corrupt, and retrying
+   * it forever never shows a QR. The first real deployment sat in exactly that loop.
+   */
+  const fireBadSession = (): void => {
+    fakeSock.fire('connection.update', {
+      connection: 'close',
+      lastDisconnect: { error: { output: { statusCode: 500 } } },
+    });
+  };
+  const settle = async (): Promise<void> => {
+    // The teardown is fire-and-forget with awaits inside; let it run to the end.
+    for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+  };
+
+  it('retries a bad session, then discards the saved login when it repeats, so a fresh QR can be scanned', async () => {
+    const rmSpy = jest.spyOn(fs.promises, 'rm').mockResolvedValue(undefined);
+    const onDisconnected = jest.fn();
+    const adapter = await initWithRealTimers({ onDisconnected });
+    baileys().default.mockClear();
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+
+    // The first two could be server hiccups: reconnect, credentials untouched.
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+    expect(baileys().default).toHaveBeenCalledTimes(2);
+    expect(rmSpy).not.toHaveBeenCalled();
+
+    // The third with no 'open' in between: the login is dead.
+    fireBadSession();
+    await settle();
+
+    expect(rmSpy).toHaveBeenCalledWith(
+      path.join('./data/baileys', 'sess-1'),
+      expect.objectContaining({ recursive: true, force: true }),
+    );
+    expect(adapter.getStatus()).toBe(EngineStatus.DISCONNECTED);
+    // The reason the session service treats as a terminal unlink — that is what yields one fresh QR.
+    expect(onDisconnected).toHaveBeenCalledWith('bad session');
+
+    // And the dead credentials are not retried again.
+    await jest.advanceTimersByTimeAsync(120_000);
+    expect(baileys().default).toHaveBeenCalledTimes(2);
+  });
+
+  it("an 'open' between bad sessions resets the count, so a healthy session is never wiped", async () => {
+    const rmSpy = jest.spyOn(fs.promises, 'rm').mockResolvedValue(undefined);
+    const adapter = await initWithRealTimers({});
+    baileys().default.mockClear();
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+
+    // It came back — those two were hiccups, not a corrupt login.
+    fakeSock.fire('connection.update', { connection: 'open' });
+    expect(adapter.getStatus()).toBe(EngineStatus.READY);
+
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+    await settle();
+
+    // Four in total, but never three in a row without an 'open'.
+    expect(rmSpy).not.toHaveBeenCalled();
+    expect(adapter.getStatus()).not.toBe(EngineStatus.DISCONNECTED);
+  });
+
+  it('counts the two closes Baileys can emit for one drop as one', async () => {
+    const rmSpy = jest.spyOn(fs.promises, 'rm').mockResolvedValue(undefined);
+    await initWithRealTimers({});
+    baileys().default.mockClear();
+    jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+
+    // Each drop arrives twice; the second lands while the reconnect is pending.
+    fireBadSession();
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+    fireBadSession();
+    fireBadSession();
+    await jest.advanceTimersByTimeAsync(61_000);
+    await settle();
+
+    // Four closes, two drops: under the limit. Counted before the duplicate guard, this would wipe.
+    expect(rmSpy).not.toHaveBeenCalled();
   });
 
   it('stability reset: a close >5 min after the previous close restarts the backoff at attempt 1', async () => {
