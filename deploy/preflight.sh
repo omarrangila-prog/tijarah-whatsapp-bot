@@ -68,6 +68,15 @@ if [ "${TIJARAH_QUEUE_ENABLED:-false}" = "true" ]; then
     || warn "GetBotTijarahClient returned HTTP $C — new numbers must be registered by hand until it is up"
 fi
 
+# A pepper that the app generates for itself is one a later deploy can regenerate — and then
+# every existing API key returns "Invalid API key" while still looking right in data/.api-key.
+# Caught here because the symptom points at the key, not at the pepper.
+if [ -z "${API_KEY_PEPPER:-}" ]; then
+  warn "API_KEY_PEPPER is unset — set it (openssl rand -hex 32) before first boot, or a future deploy can invalidate every API key"
+else
+  ok "API_KEY_PEPPER is pinned"
+fi
+
 if [ -n "${DRAFT_SUBMIT_ENDPOINT:-}" ]; then
   # A structurally VALID request, because an invalid one is rejected by validation before it
   # ever reaches the database — and "does the database table exist" is the thing worth

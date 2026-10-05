@@ -174,6 +174,32 @@ Run it as its own unprivileged user, with its own directory. Do not run it as ro
 
 ---
 
+## If "Invalid API key" appears and the key looks correct
+
+The key in `data/.api-key` is only a **copy**; authentication checks a peppered hash in the
+database. If `API_KEY_PEPPER` was never pinned, the app generates one into
+`data/.env.generated` — and anything that recreates that file (a wiped volume, or `deploy.sh`
+run from a second clone of the repo) leaves the stored hash unmatchable. The log says so
+exactly:
+
+```
+Bootstrap API key file does not match any stored key hash — API_KEY_PEPPER changed
+since the key was seeded?
+```
+
+Repair, and prevent it recurring:
+
+```bash
+cd deploy
+echo "API_KEY_PEPPER=$(openssl rand -hex 32)" >> .env   # pin it, once, forever
+docker run --rm -v openwa_openwa-data:/d alpine rm -f /d/.api-key
+./deploy.sh --no-check                                  # reseeds against the pinned pepper
+docker run --rm -v openwa_openwa-data:/d alpine cat /d/.api-key
+```
+
+Keep **one** clone of the repository on the server. Two copies are two compose projects
+competing over one volume, which is what causes this.
+
 ## Before the client uses it
 
 `deploy/preflight.sh` runs automatically under Route 1 and can be run by hand under Route 2.
