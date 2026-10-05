@@ -187,15 +187,38 @@ Bootstrap API key file does not match any stored key hash — API_KEY_PEPPER cha
 since the key was seeded?
 ```
 
-Repair, and prevent it recurring:
+**Deleting the key file does not repair it.** The app seeds a key only when the database holds
+_zero_ of them (`count === 0` in `auth.service.ts`), so an orphaned hash means it skips seeding
+and writes no file — leaving no way in, because the dashboard needs a key you no longer have.
+The stale row has to go.
+
+Pin the pepper first, or the repair can undo itself:
 
 ```bash
 cd deploy
-echo "API_KEY_PEPPER=$(openssl rand -hex 32)" >> .env   # pin it, once, forever
-docker run --rm -v openwa_openwa-data:/d alpine rm -f /d/.api-key
-./deploy.sh --no-check                                  # reseeds against the pinned pepper
+echo "API_KEY_PEPPER=$(openssl rand -hex 32)" >> .env   # once, forever
+```
+
+Then either drop the orphaned key row:
+
+```bash
+docker run --rm -v openwa_openwa-data:/d alpine \
+  sh -c 'apk add -q sqlite && sqlite3 /d/main.sqlite "DELETE FROM api_keys;"'
+./deploy.sh --no-check
 docker run --rm -v openwa_openwa-data:/d alpine cat /d/.api-key
 ```
+
+or, before there is any real data, wipe the volume — simpler, and it also clears the
+auto-generated pepper:
+
+```bash
+./deploy.sh --stop
+docker volume rm openwa_openwa-data
+./deploy.sh --no-check
+docker run --rm -v openwa_openwa-data:/d alpine cat /d/.api-key
+```
+
+A wipe also discards the WhatsApp pairing, so do it **before** scanning the QR, not after.
 
 Keep **one** clone of the repository on the server. Two copies are two compose projects
 competing over one volume, which is what causes this.
