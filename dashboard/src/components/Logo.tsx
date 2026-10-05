@@ -1,7 +1,8 @@
 import { useId } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
- * The Rangila mark.
+ * The product mark: a conversation bubble holding three ascending bars.
  *
  * Inline SVG rather than an <img>: it stays crisp at every size and needs no network round trip on
  * first paint. The gradient id comes from `useId` because an SVG gradient id is document-global —
@@ -9,7 +10,8 @@ import { useId } from 'react';
  * would be a side effect during render, which breaks under StrictMode's double invocation.
  */
 export function Logo({ size = 32, className = '' }: { size?: number; className?: string }) {
-  const gradientId = `rangila-g-${useId()}`;
+  const { t } = useTranslation();
+  const gradientId = `brand-g-${useId()}`;
   return (
     <svg
       width={size}
@@ -17,7 +19,7 @@ export function Logo({ size = 32, className = '' }: { size?: number; className?:
       viewBox="0 0 48 48"
       className={className}
       role="img"
-      aria-label="Rangila"
+      aria-label={t('common.appName')}
       focusable="false"
     >
       <defs>

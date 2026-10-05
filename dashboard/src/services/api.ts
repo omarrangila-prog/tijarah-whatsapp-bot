@@ -1,4 +1,4 @@
-// API service layer for the Rangila dashboard
+// API service layer for the dashboard
 // Centralized API client with TypeScript types
 
 import { warnIfInsecureHttpUrl } from '../utils/urlSecurity';

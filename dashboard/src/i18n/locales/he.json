@@ -6,7 +6,7 @@
     }
   },
   "common": {
-    "appName": "Rangila",
+    "appName": "Tijarah Books",
     "loading": "טוען...",
     "cancel": "ביטול",
     "delete": "מחיקה",
@@ -703,7 +703,7 @@
       "postgres": "PostgreSQL",
       "postgresDesc": "מסד נתונים מוכן לייצור",
       "useBuiltIn": "שימוש בקונטיינר PostgreSQL מובנה",
-      "builtInDesc": "Rangila ינהל עבורך קונטיינר PostgreSQL",
+      "builtInDesc": "$t(common.appName) ינהל עבורך קונטיינר PostgreSQL",
       "dbName": "שם מסד הנתונים",
       "schema": "סכמה",
       "schemaDesc": "סכמת PostgreSQL (לא חלה על SQLite). ברירת מחדל 'public'. הסכמה חייבת להיות קיימת מראש.",
@@ -738,7 +738,7 @@
       "enable": "הפעלת Redis",
       "enableDesc": "נדרש למטמון, אחסון Sessions ותורי BullMQ",
       "useBuiltIn": "שימוש בקונטיינר Redis מובנה",
-      "builtInDesc": "Rangila ינהל עבורך קונטיינר Redis",
+      "builtInDesc": "$t(common.appName) ינהל עבורך קונטיינר Redis",
       "queueTitle": "הפעלת מערכת התורים BullMQ",
       "queueDesc": "שימוש בתורי הודעות לאספקה אמינה של הודעות ו-Webhooks",
       "statsTitle": "סטטיסטיקות תור",
@@ -760,7 +760,7 @@
       "s3": "Amazon S3",
       "s3Desc": "אחסון ענן (תואם S3)",
       "useBuiltIn": "שימוש בקונטיינר MinIO מובנה",
-      "builtInDesc": "Rangila ינהל עבורך קונטיינר MinIO (תואם S3)",
+      "builtInDesc": "$t(common.appName) ינהל עבורך קונטיינר MinIO (תואם S3)",
       "storagePath": "נתיב אחסון",
       "bucket": "שם Bucket",
       "region": "אזור (Region)",
@@ -811,7 +811,7 @@
       "importFailed": "לא ניתן לייבא את הנתונים",
       "importOk": "הנתונים יובאו",
       "importConfirm": "הייבוא יחליף את כל הנתונים הנוכחיים בגיבוי ({{rows}} שורות). לא ניתן לבטל פעולה זו. להמשיך?",
-      "invalidFile": "הקובץ הזה אינו גיבוי נתונים תקין של Rangila.",
+      "invalidFile": "הקובץ הזה אינו גיבוי נתונים תקין של $t(common.appName).",
       "importTooLarge": "הגיבוי גדול מדי עבור מגבלת הבקשה. הגדילו את BODY_SIZE_LIMIT בשרת ונסו שוב."
     },
     "statusLoadError": "לא ניתן לטעון את מצב התשתית הנוכחי. רעננו כדי לנסות שוב."
@@ -831,7 +831,7 @@
     "uninstallConfirm": "להסיר את \"{{name}}\"? פעולה זו תמחק את הקבצים שלו.",
     "empty": {
       "title": "לא נמצאו תוספים",
-      "description": "ניתן להתקין תוספים כדי להרחיב את היכולות של Rangila"
+      "description": "ניתן להתקין תוספים כדי להרחיב את היכולות של $t(common.appName)"
     },
     "config": {
       "title": "הגדרת {{name}}",
@@ -854,7 +854,7 @@
       "trustWarning": "תוספים רצים עם הרשאות התהליך המלאות של השער — ארגז החול מכיל קריסות, לא קוד זדוני. התקינו רק תוספים שאתם סומכים עליהם.",
       "choose": "בחירת קובץ ‎.zip‎…",
       "tooLarge": "הקובץ חורג מהמגבלה של ‎5 MB‎.",
-      "catalogHint": "התקינו ישירות מקטלוג התוספים של Rangila. קובץ ה-.zip נשלף מהשרת דרך מגן ה-SSRF, מאומת ומורץ בארגז חול.",
+      "catalogHint": "התקינו ישירות מקטלוג התוספים של $t(common.appName). קובץ ה-.zip נשלף מהשרת דרך מגן ה-SSRF, מאומת ומורץ בארגז חול.",
       "catalogTeaser": "מחפשים תוספים?",
       "catalogTeaserSuffix": "סוקר את החנות הרשמית.",
       "tabCatalog": "קטלוג",

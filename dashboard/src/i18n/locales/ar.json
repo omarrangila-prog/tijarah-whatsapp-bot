@@ -6,7 +6,7 @@
     }
   },
   "common": {
-    "appName": "Rangila",
+    "appName": "Tijarah Books",
     "loading": "جارٍ التحميل...",
     "cancel": "إلغاء",
     "delete": "حذف",
@@ -709,7 +709,7 @@
       "postgres": "PostgreSQL",
       "postgresDesc": "قاعدة بيانات جاهزة للإنتاج",
       "useBuiltIn": "استخدام حاوية PostgreSQL المدمجة",
-      "builtInDesc": "سيدير Rangila حاوية PostgreSQL نيابةً عنك",
+      "builtInDesc": "سيدير $t(common.appName) حاوية PostgreSQL نيابةً عنك",
       "dbName": "اسم قاعدة البيانات",
       "schema": "المخطط",
       "schemaDesc": "مخطط PostgreSQL (يُتجاهل لـ SQLite). الافتراضي 'public'. يجب أن يكون المخطط موجوداً مسبقاً.",
@@ -744,7 +744,7 @@
       "enable": "تفعيل Redis",
       "enableDesc": "مطلوب للتخزين المؤقت وتخزين الجلسات وقوائم BullMQ",
       "useBuiltIn": "استخدام حاوية Redis المدمجة",
-      "builtInDesc": "سيدير Rangila حاوية Redis نيابةً عنك",
+      "builtInDesc": "سيدير $t(common.appName) حاوية Redis نيابةً عنك",
       "queueTitle": "تفعيل نظام قوائم BullMQ",
       "queueDesc": "استخدام قوائم الرسائل لتوصيل موثوق للرسائل والويب هوك",
       "statsTitle": "إحصائيات القوائم",
@@ -766,7 +766,7 @@
       "s3": "Amazon S3",
       "s3Desc": "تخزين سحابي (متوافق مع S3)",
       "useBuiltIn": "استخدام حاوية MinIO المدمجة",
-      "builtInDesc": "سيدير Rangila حاوية MinIO (متوافقة مع S3) نيابةً عنك",
+      "builtInDesc": "سيدير $t(common.appName) حاوية MinIO (متوافقة مع S3) نيابةً عنك",
       "storagePath": "مسار التخزين",
       "bucket": "اسم الحاوية",
       "region": "المنطقة",
@@ -817,7 +817,7 @@
       "importFailed": "تعذّر استيراد البيانات",
       "importOk": "تمّ استيراد البيانات",
       "importConfirm": "سيؤدّي الاستيراد إلى استبدال جميع البيانات الحالية بالنسخة الاحتياطية ({{rows}} صفًّا). لا يمكن التراجع عن هذا الإجراء. هل تريد المتابعة؟",
-      "invalidFile": "هذا الملفّ ليس نسخة احتياطية صالحة لبيانات Rangila.",
+      "invalidFile": "هذا الملفّ ليس نسخة احتياطية صالحة لبيانات $t(common.appName).",
       "importTooLarge": "النسخة الاحتياطية أكبر من حدّ الطلب. زِد قيمة BODY_SIZE_LIMIT على الخادم ثم أعد المحاولة."
     },
     "statusLoadError": "تعذّر تحميل حالة البنية التحتية الحالية. حدّث الصفحة لإعادة المحاولة."
@@ -837,7 +837,7 @@
     "uninstallConfirm": "إزالة \"{{name}}\"؟ سيؤدي ذلك إلى حذف ملفاتها.",
     "empty": {
       "title": "لم يتم العثور على إضافات",
-      "description": "ثبّت إضافات لتوسيع وظائف Rangila"
+      "description": "ثبّت إضافات لتوسيع وظائف $t(common.appName)"
     },
     "config": {
       "title": "إعداد {{name}}",
@@ -860,7 +860,7 @@
       "trustWarning": "تعمل الإضافات بكامل صلاحيات عملية البوابة — البيئة المعزولة تحتوي الأعطال فقط، لا الشيفرة الخبيثة. ثبّت فقط الإضافات التي تثق بها.",
       "choose": "اختر ملف .zip…",
       "tooLarge": "يتجاوز الملف الحد الأقصى البالغ 5 MB.",
-      "catalogHint": "ثبّت مباشرة من كتالوج إضافات Rangila. يتم جلب ملف .zip من جانب الخادم عبر حماية SSRF، ثم يُتحقق منه ويُشغَّل في وضع الحماية.",
+      "catalogHint": "ثبّت مباشرة من كتالوج إضافات $t(common.appName). يتم جلب ملف .zip من جانب الخادم عبر حماية SSRF، ثم يُتحقق منه ويُشغَّل في وضع الحماية.",
       "catalogTeaser": "تبحث عن إضافات؟",
       "catalogTeaserSuffix": "يتصفح المتجر الرسمي.",
       "tabCatalog": "الكتالوج",

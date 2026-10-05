@@ -92,7 +92,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('');
     this.logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     this.logger.log('');
-    this.logger.log('  🟢 Welcome to Rangila — WhatsApp Command Center');
+    this.logger.log('  🟢 Welcome to Tijarah Books — WhatsApp bot');
     this.logger.log('');
     this.logger.log(`  📊 Dashboard: ${dashboardUrl}`);
     this.logger.log(`  📚 API Docs:  ${apiBaseUrl}/api/docs`);

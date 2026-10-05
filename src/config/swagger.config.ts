@@ -92,7 +92,7 @@ export function exemptPublicOperations(document: OpenAPIObject): OpenAPIObject {
 }
 
 /**
- * Builds the OpenAPI document configuration for the Rangila API.
+ * Builds the OpenAPI document configuration for the Tijarah Books API.
  */
 export function createSwaggerConfig(): Omit<OpenAPIObject, 'paths'> {
   // Source the API version from package.json so it tracks releases automatically — no manual bump, no drift.
@@ -100,7 +100,7 @@ export function createSwaggerConfig(): Omit<OpenAPIObject, 'paths'> {
   const { version } = require('../../package.json') as { version: string };
   return (
     new DocumentBuilder()
-      .setTitle('Rangila API')
+      .setTitle('Tijarah Books API')
       // Two refusals are issued by middleware BEFORE routing, so they apply to every operation
       // below and cannot be expressed as a per-operation @ApiResponse without repeating them 187
       // times. Documenting them here keeps the contract honest for clients that would otherwise

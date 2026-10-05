@@ -137,7 +137,7 @@ export class MockLedgerAdapter implements LedgerPort, LedgerWritePort {
 
   getBusiness(): Promise<LedgerBusiness> {
     return Promise.resolve({
-      name: 'Rangila Trading Co. (DEMO LEDGER — not a real business)',
+      name: 'Demo Trading Co. (DEMO LEDGER — not a real business)',
       city: 'Karachi',
       currency: 'PKR',
       paymentInstructions: 'Bank transfer to Meezan Bank. Please quote the invoice number.',

@@ -6,7 +6,7 @@
     }
   },
   "common": {
-    "appName": "Rangila",
+    "appName": "Tijarah Books",
     "loading": "Chargement...",
     "cancel": "Annuler",
     "delete": "Supprimer",
@@ -694,7 +694,7 @@
       "postgres": "PostgreSQL",
       "postgresDesc": "Base de données prête pour la production",
       "useBuiltIn": "Utiliser le conteneur PostgreSQL intégré",
-      "builtInDesc": "Rangila gérera un conteneur PostgreSQL pour vous",
+      "builtInDesc": "$t(common.appName) gérera un conteneur PostgreSQL pour vous",
       "dbName": "Nom de la base de données",
       "schema": "Schéma",
       "schemaDesc": "Schéma PostgreSQL (ignoré pour SQLite). Par défaut 'public'. Le schéma doit déjà exister.",
@@ -729,7 +729,7 @@
       "enable": "Activer Redis",
       "enableDesc": "Requis pour le cache, le stockage des sessions et les files d'attente BullMQ",
       "useBuiltIn": "Utiliser le conteneur Redis intégré",
-      "builtInDesc": "Rangila gérera un conteneur Redis pour vous",
+      "builtInDesc": "$t(common.appName) gérera un conteneur Redis pour vous",
       "queueTitle": "Activer le système de file d'attente BullMQ",
       "queueDesc": "Utiliser des files d'attente pour une livraison fiable des messages et des webhooks",
       "statsTitle": "Statistiques de la file d'attente",
@@ -751,7 +751,7 @@
       "s3": "Amazon S3",
       "s3Desc": "Stockage cloud (compatible S3)",
       "useBuiltIn": "Utiliser le conteneur MinIO intégré",
-      "builtInDesc": "Rangila gérera un conteneur MinIO (compatible S3) pour vous",
+      "builtInDesc": "$t(common.appName) gérera un conteneur MinIO (compatible S3) pour vous",
       "storagePath": "Chemin de stockage",
       "bucket": "Nom du bucket",
       "region": "Région",
@@ -802,7 +802,7 @@
       "importFailed": "Impossible d'importer les données",
       "importOk": "Données importées",
       "importConfirm": "L'importation REMPLACERA toutes les données actuelles par la sauvegarde ({{rows}} lignes). Cette action est irréversible. Continuer ?",
-      "invalidFile": "Ce fichier n'est pas une sauvegarde de données Rangila valide.",
+      "invalidFile": "Ce fichier n'est pas une sauvegarde de données $t(common.appName) valide.",
       "importTooLarge": "La sauvegarde dépasse la limite de la requête. Augmentez BODY_SIZE_LIMIT sur le serveur, puis réessayez."
     },
     "statusLoadError": "Impossible de charger l'état actuel de l'infrastructure. Actualisez pour réessayer."
@@ -822,7 +822,7 @@
     "uninstallConfirm": "Désinstaller « {{name}} » ? Cela supprime ses fichiers.",
     "empty": {
       "title": "Aucun plugin trouvé",
-      "description": "Installez des plugins pour étendre les fonctionnalités d'Rangila"
+      "description": "Installez des plugins pour étendre les fonctionnalités de $t(common.appName)"
     },
     "config": {
       "title": "Configurer {{name}}",
@@ -845,7 +845,7 @@
       "trustWarning": "Les plugins s'exécutent avec tous les privilèges du processus de la passerelle — le bac à sable contient les plantages, pas le code malveillant. N'installez que des plugins de confiance.",
       "choose": "Choisir un fichier .zip…",
       "tooLarge": "Le fichier dépasse la limite de 5 MB.",
-      "catalogHint": "Installez directement depuis le catalogue de plugins Rangila. Le .zip est récupéré côté serveur via la protection SSRF, puis validé et exécuté en sandbox.",
+      "catalogHint": "Installez directement depuis le catalogue de plugins $t(common.appName). Le .zip est récupéré côté serveur via la protection SSRF, puis validé et exécuté en sandbox.",
       "catalogTeaser": "Vous cherchez des plugins ?",
       "catalogTeaserSuffix": "parcourt la place de marché officielle.",
       "tabCatalog": "Catalogue",

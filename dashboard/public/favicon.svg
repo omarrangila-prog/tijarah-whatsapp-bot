@@ -1,22 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Rangila">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Tijarah Books">
   <!--
-    Rangila mark. A conversation bubble containing three ascending bars: the two things the product
-    actually is — every conversation in one place, and the measurement of them. The gradient is a
-    nod to the name (rangila = colourful) kept to two stops so it reads as a product mark rather
-    than decoration, and starts at the messaging green the domain expects.
+    Product mark. A conversation bubble containing three ascending bars: the two things the product
+    actually is — every conversation in one place, and the measurement of them. The gradient is
+    kept to two stops so it reads as a product mark rather than decoration, and starts at the
+    messaging green the domain expects.
   -->
   <defs>
-    <linearGradient id="rangila-g" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="brand-g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#25d366"/>
       <stop offset="55%" stop-color="#12b3a8"/>
       <stop offset="100%" stop-color="#5b5bd6"/>
     </linearGradient>
   </defs>
-  <rect width="48" height="48" rx="12" fill="url(#rangila-g)"/>
+  <rect width="48" height="48" rx="12" fill="url(#brand-g)"/>
   <path
     d="M14.5 12h19a5.5 5.5 0 0 1 5.5 5.5v11a5.5 5.5 0 0 1-5.5 5.5H24.9l-7.4 5.6a1 1 0 0 1-1.6-.8V34h-1.4A5.5 5.5 0 0 1 9 28.5v-11A5.5 5.5 0 0 1 14.5 12Z"
     fill="#fff"/>
-  <g fill="url(#rangila-g)">
+  <g fill="url(#brand-g)">
     <rect x="15.4" y="24.4" width="4.6" height="5.2" rx="1.6"/>
     <rect x="21.7" y="20.4" width="4.6" height="9.2" rx="1.6"/>
     <rect x="28" y="16.4" width="4.6" height="13.2" rx="1.6"/>
