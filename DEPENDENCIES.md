@@ -99,9 +99,15 @@ patch releases because they track WhatsApp's own internals. Do not loosen them.
 
 - [ ] **Tijarah Books API** — `api.tijarabooks.com`; no credentials today, the PDF endpoints are open
 - [ ] **WhatsApp account** — a _separate_ number, not the main business line
-- [ ] **Gemini API key** — free tier runs out after a few dozen turns; without one the bot
-      falls back to rule-based replies and keeps working
-- [ ] **Anthropic API key** — optional, only if you prefer Claude over Gemini
+- [ ] **A reasoning key** — one of:
+  - **Gemini** (`GEMINI_API_KEY`) — free tier runs out after a few dozen turns
+  - **Any OpenAI-compatible host** (`AI_BASE_URL` + `AI_API_KEY` + `AI_MODEL`) — Moonshot/Kimi,
+    DeepSeek, OpenAI, OpenRouter, a local vLLM. Takes precedence over Gemini; use it for a paid key.
+  - **Anthropic** (`AI_API_KEY` for the copilot) — optional
+  - **None** — the bot falls back to rule-based replies and keeps working
+
+> Every turn's content reaches whichever host answers: customer names, account codes, invoice
+> amounts, composed documents. `AI_BASE_URL` has no default for that reason.
 
 Not required: Postgres, Redis, S3/MinIO. They are wired in and switched off.
 

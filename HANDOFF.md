@@ -214,6 +214,12 @@ The key runs out after a few dozen turns (`429 … exceeded your current quota`)
 falls through to a rule-based provider and keeps working — the bot degrades from natural
 language to step-by-step prompts rather than breaking. A paid key removes the ceiling.
 
+Any OpenAI-compatible host can take over instead: set `AI_BASE_URL`, `AI_API_KEY` and
+`AI_MODEL` and `OpenAiCompatibleReasoningProvider` answers ahead of Gemini. It works with
+Moonshot (Kimi), DeepSeek, OpenAI, OpenRouter, a local vLLM — one provider, because they all
+speak the same format. There is **no default base URL**: every turn's content reaches that
+host, so it must be named deliberately. Unset, the provider is dormant.
+
 ---
 
 ## 6. Conventions to keep

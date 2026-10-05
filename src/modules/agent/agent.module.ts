@@ -14,6 +14,7 @@ import { ApprovalService } from './approval.service';
 import { AgentRuntime } from './agent-runtime.service';
 import { MockReasoningProvider } from './mock-reasoning.provider';
 import { GeminiReasoningProvider } from './gemini-reasoning.provider';
+import { OpenAiCompatibleReasoningProvider } from './openai-compatible-reasoning.provider';
 import { AnthropicAiProvider } from '../command-center/ai/anthropic.provider';
 import { REASONING_PROVIDERS, type ReasoningProvider } from './agent-reasoning.interface';
 import { ContactMapper } from '../../integrations/whatsapp/contact-mapper';
@@ -78,6 +79,7 @@ import { LEDGER_PORT } from '../../integrations/ledger/ledger.port';
     SessionManager,
     WhatsAppGateway,
     GeminiReasoningProvider,
+    OpenAiCompatibleReasoningProvider,
     MockReasoningProvider,
     OpenWaProvider,
     MockWhatsAppProvider,
@@ -144,21 +146,26 @@ import { LEDGER_PORT } from '../../integrations/ledger/ledger.port';
      */
     {
       provide: REASONING_PROVIDERS,
-      inject: [AnthropicAiProvider, GeminiReasoningProvider, MockReasoningProvider],
+      inject: [OpenAiCompatibleReasoningProvider, AnthropicAiProvider, GeminiReasoningProvider, MockReasoningProvider],
       useFactory: (
+        openAiCompatible: OpenAiCompatibleReasoningProvider,
         anthropic: AnthropicAiProvider,
         gemini: GeminiReasoningProvider,
         mock: MockReasoningProvider,
       ): ReasoningProvider[] => {
         if (process.env.AGENT_REASONING_MOCK === 'true') return [mock];
         /*
-         * Ordered by preference, and the runtime takes the first that is available — so a
-         * deployment configures whichever key it has and the rest stay dormant. Gemini sits
-         * ahead of Anthropic because its free tier is what this deployment runs on; the mock
-         * is last so an unreachable model degrades to something deterministic rather than
-         * taking the channel down.
+         * Ordered by preference, and the runtime takes the first that is AVAILABLE — so a
+         * deployment configures whichever key it has and the rest stay dormant.
+         *
+         * The OpenAI-compatible provider is first because it is the only one an operator has
+         * to opt into: it reports itself unavailable unless AI_BASE_URL, AI_API_KEY and
+         * AI_MODEL are all set, so putting it first costs nothing when it is unconfigured and
+         * means a paid key takes precedence over a free tier when it is. Gemini then
+         * Anthropic; the mock is last so an unreachable model degrades the channel to
+         * something deterministic rather than taking it down.
          */
-        return [gemini, anthropic, mock];
+        return [openAiCompatible, gemini, anthropic, mock];
       },
     },
   ],
