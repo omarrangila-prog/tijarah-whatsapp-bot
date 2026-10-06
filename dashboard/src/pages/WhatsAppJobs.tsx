@@ -10,6 +10,7 @@ import {
   Play,
 } from 'lucide-react';
 import {
+  request,
   whatsappJobApi,
   type WhatsAppDocumentJob,
   type DocumentTypeOption,
@@ -21,6 +22,7 @@ import { useRole } from '../hooks/useRole';
 import { useToast } from '../hooks/useToast';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
+import { buildSendJob, canSend, needsDocumentNumber } from './sendJobRequest';
 import './WhatsAppJobs.css';
 
 /**
@@ -478,7 +480,25 @@ function TimelineModal({ job, onClose }: { job: WhatsAppDocumentJob; onClose: ()
   );
 }
 
-/** §5: the Send to WhatsApp form. Creates a job and nothing else. */
+/** A number the bot serves, and the Tijarah company whose documents it receives. */
+interface RegisteredClient {
+  whatsAppNo: string;
+  displayName: string | null;
+  sid: number;
+  grp: string;
+  aYear: string;
+  isActive: boolean;
+}
+
+const ANOTHER_NUMBER = '';
+
+/**
+ * §5: the Send to WhatsApp form. Creates a job and nothing else.
+ *
+ * It starts empty on purpose. It used to open filled with sample values — invoice "INV-1001",
+ * a made-up "saved number" — and anything sent without retyping every field went to a number
+ * nobody owns, asking Tijarah for an invoice that does not exist (answered 400).
+ */
 function SendModal({
   types,
   onClose,
@@ -491,48 +511,60 @@ function SendModal({
   const toast = useToast();
   const enabled = types.filter(t => t.enabled);
   const [documentType, setDocumentType] = useState(enabled[0]?.documentType ?? 'invoice');
-  const [documentReference, setDocumentReference] = useState('INV-1001');
-  const [clientId, setClientId] = useState('CLIENT-001');
-  const [partyId, setPartyId] = useState('PARTY-ALI');
-  const [recipientName, setRecipientName] = useState('Ali Accounts');
-  const [savedNumber] = useState('+923001234567');
-  const [useAlternate, setUseAlternate] = useState(false);
+  const [documentNumber, setDocumentNumber] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [partyCode, setPartyCode] = useState('');
+  const [clients, setClients] = useState<RegisteredClient[]>([]);
+  const [clientPhone, setClientPhone] = useState(ANOTHER_NUMBER);
   const [alternate, setAlternate] = useState('');
-  const [messageText, setMessageText] = useState('Please find your requested invoice attached.');
+  const [company, setCompany] = useState({ sid: '', grp: '', aYear: '' });
+  const [recipientName, setRecipientName] = useState('');
+  const [messageText, setMessageText] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  /*
+   * The registered clients are who documents normally go to, and choosing one also chooses
+   * their company, so the document comes from that client's books rather than the default
+   * company. The list is admin-only; any other key just gets the number field.
+   */
+  useEffect(() => {
+    let live = true;
+    request<RegisteredClient[]>('/bot-users')
+      .then(rows => {
+        if (live) setClients(rows.filter(r => r.isActive));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const selectedType = enabled.find(t => t.documentType === documentType);
-  const number = useAlternate ? alternate : savedNumber;
+  const needsNumber = needsDocumentNumber(selectedType);
+  const optional = selectedType?.optionalParameters ?? [];
+  const client = clients.find(c => c.whatsAppNo === clientPhone);
+  const number = client ? client.whatsAppNo : alternate;
+  const tenant = client ? { sid: String(client.sid), grp: client.grp, aYear: client.aYear } : company;
+  const ready = !!selectedType && canSend({ type: selectedType, documentNumber, number });
 
   const submit = async () => {
+    if (!selectedType) return;
     setSubmitting(true);
     try {
-      const digits = number.replace(/\D/g, '');
-      /*
-       * The key is derived from what makes this delivery unique — this document, to this
-       * number. Two clicks of the button therefore collide by design, which is what stops a
-       * double-click sending a customer their invoice twice.
-       */
-      const idempotencyKey = `${documentType}-${documentReference}-${digits}`;
-      const parameters: Record<string, unknown> = {};
-      for (const key of selectedType?.requiredParameters ?? []) {
-        parameters[key] = documentReference;
-      }
-      if ((selectedType?.optionalParameters ?? []).includes('companyId')) parameters.companyId = clientId;
-
-      const result = await whatsappJobApi.create({
-        source: 'ui',
-        documentType,
-        documentName: `${documentReference}.pdf`,
-        documentReference,
-        clientId,
-        partyId,
-        recipientName,
-        recipientWhatsAppNumber: number,
-        messageText,
-        parameters,
-        idempotencyKey,
-      });
+      const result = await whatsappJobApi.create(
+        buildSendJob({
+          type: selectedType,
+          documentNumber,
+          from,
+          to,
+          partyCode,
+          tenant,
+          number,
+          recipientName: recipientName.trim() || client?.displayName || '',
+          messageText,
+        }),
+      );
       await onCreated(result.jobId);
     } catch (error) {
       toast.error((error as Error).message);
@@ -547,40 +579,118 @@ function SendModal({
         <label>
           <span>Document type</span>
           <select value={documentType} onChange={e => setDocumentType(e.target.value)}>
-            {enabled.map(t => <option key={t.documentType} value={t.documentType}>{t.displayName}</option>)}
+            {enabled.map(t => (
+              <option key={t.documentType} value={t.documentType}>
+                {t.displayName}
+              </option>
+            ))}
           </select>
         </label>
-        <label>
-          <span>Document reference</span>
-          <input value={documentReference} onChange={e => setDocumentReference(e.target.value)} />
-        </label>
-        <div className="two">
-          <label><span>Client</span><input value={clientId} onChange={e => setClientId(e.target.value)} /></label>
-          <label><span>Party</span><input value={partyId} onChange={e => setPartyId(e.target.value)} /></label>
-        </div>
-        <label>
-          <span>Recipient name</span>
-          <input value={recipientName} onChange={e => setRecipientName(e.target.value)} />
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={!useAlternate} onChange={() => setUseAlternate(false)} />
-          <span>Saved number <strong>{savedNumber}</strong></span>
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={useAlternate} onChange={() => setUseAlternate(true)} />
-          <span>Send to a different number</span>
-        </label>
-        {useAlternate && (
-          <input
-            placeholder="+923001234567"
-            value={alternate}
-            onChange={e => setAlternate(e.target.value)}
-            autoFocus
-          />
+        {needsNumber ? (
+          <label>
+            <span>Document number</span>
+            <input
+              value={documentNumber}
+              onChange={e => setDocumentNumber(e.target.value)}
+              placeholder="e.g. 179 — the number shown in Tijarah"
+              inputMode="numeric"
+            />
+          </label>
+        ) : (
+          <>
+            {(optional.includes('from') || optional.includes('to')) && (
+              <div className="two">
+                <label>
+                  <span>From</span>
+                  <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+                </label>
+              </div>
+            )}
+            {optional.includes('partyCode') && (
+              <label>
+                <span>Party code (optional)</span>
+                <input
+                  value={partyCode}
+                  onChange={e => setPartyCode(e.target.value)}
+                  placeholder="Leave blank for every party"
+                />
+              </label>
+            )}
+          </>
+        )}
+        {clients.length > 0 && (
+          <label>
+            <span>Send to</span>
+            <select value={clientPhone} onChange={e => setClientPhone(e.target.value)}>
+              <option value={ANOTHER_NUMBER}>Another number…</option>
+              {clients.map(c => (
+                <option key={c.whatsAppNo} value={c.whatsAppNo}>
+                  {c.displayName || c.whatsAppNo} · +{c.whatsAppNo} (company {c.sid}/{c.grp})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {!client && (
+          <>
+            <label>
+              <span>WhatsApp number</span>
+              <input
+                placeholder="+923001234567"
+                value={alternate}
+                onChange={e => setAlternate(e.target.value)}
+                inputMode="tel"
+              />
+            </label>
+            <div className="two" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              <label>
+                <span>Company (sid)</span>
+                <input
+                  value={company.sid}
+                  onChange={e => setCompany({ ...company, sid: e.target.value })}
+                  placeholder="default"
+                />
+              </label>
+              <label>
+                <span>Branch</span>
+                <input
+                  value={company.grp}
+                  onChange={e => setCompany({ ...company, grp: e.target.value })}
+                  placeholder="default"
+                />
+              </label>
+              <label>
+                <span>Year</span>
+                <input
+                  value={company.aYear}
+                  onChange={e => setCompany({ ...company, aYear: e.target.value })}
+                  placeholder="default"
+                />
+              </label>
+            </div>
+          </>
         )}
         <label>
-          <span>Message / caption</span>
-          <textarea rows={3} maxLength={1024} value={messageText} onChange={e => setMessageText(e.target.value)} />
+          <span>Recipient name (optional)</span>
+          <input
+            value={recipientName}
+            onChange={e => setRecipientName(e.target.value)}
+            placeholder={client?.displayName ?? ''}
+          />
+        </label>
+        <label>
+          <span>Message / caption (optional)</span>
+          <textarea
+            rows={3}
+            maxLength={1024}
+            value={messageText}
+            onChange={e => setMessageText(e.target.value)}
+            placeholder="Leave blank for the standard caption"
+          />
         </label>
 
         <p className="dim small">
@@ -589,8 +699,10 @@ function SendModal({
         </p>
 
         <div className="modal-actions">
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={() => void submit()} disabled={submitting || !documentReference || !number}>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={() => void submit()} disabled={submitting || !ready}>
             {submitting ? <Loader2 className="spin" size={15} /> : <Send size={15} />} Send request
           </button>
         </div>
