@@ -134,12 +134,16 @@ export class BotUserService {
   /**
    * The host's client directory, by phone number.
    *
-   * Asked in the local form first (`03001234567`, which is how the directory stores numbers)
-   * and in the international form only if that finds nothing — one directory, two spellings
-   * of the same phone, and the person should not be refused over a country code.
+   * Asked in the national form first: the live directory matches `cont=3001234567` and answers
+   * "No Records" for `03001234567` and `923001234567` — even though it *stores* the number as
+   * `03001234567`, which is what this tried first until the endpoint went live and every lookup
+   * came back empty. The other two spellings stay as fallbacks in case the host is fixed to match
+   * what it stores; a miss costs one request, a wrong order cost every client their access.
    */
   private async findHostClients(whatsAppNo: string): Promise<HostClient[]> {
-    const forms = [toLocalForm(whatsAppNo), whatsAppNo].filter((v, i, all) => all.indexOf(v) === i);
+    const forms = [toNationalForm(whatsAppNo), toLocalForm(whatsAppNo), whatsAppNo].filter(
+      (v, i, all) => v && all.indexOf(v) === i,
+    );
     for (const cont of forms) {
       const rows = await this.queryHostClients({ cont });
       if (rows.length) return rows;
@@ -291,6 +295,13 @@ export class BotUserService {
     const accounts = await this.fetchAccounts(tenant, actHead);
     return accounts.some(account => account.lcode?.trim().toUpperCase() === wanted);
   }
+}
+
+/** `923001234567` → `3001234567`: no country code, no trunk zero — the form the directory matches. */
+export function toNationalForm(whatsAppNo: string): string {
+  const cc = (process.env.WHATSAPP_DEFAULT_COUNTRY_CODE ?? '92').replace(/\D/g, '');
+  if (whatsAppNo.startsWith(cc) && whatsAppNo.length > cc.length + 6) return whatsAppNo.slice(cc.length);
+  return whatsAppNo.startsWith('0') ? whatsAppNo.slice(1) : whatsAppNo;
 }
 
 /** `923001234567` → `03001234567`, the form the host's directory stores. */

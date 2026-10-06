@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import type { Chat, Contact as BaileysContact, WAMessage, WAMessageKey } from '@whiskeysockets/baileys';
 import { ChatSummary, Contact } from '../interfaces/whatsapp-engine.interface';
 import { chatKind, parseWaId, toNeutralJid as canonicalizeWaId, userPart } from '../identity/wa-id';
@@ -54,6 +57,10 @@ class LruMap<K, V> {
     }
   }
 
+  clear(): void {
+    this.map.clear();
+  }
+
   values(): IterableIterator<V> {
     return this.map.values();
   }
@@ -89,14 +96,20 @@ export class BaileysSessionStore {
    */
   private readonly ephemeralByChat: LruMap<string, number>;
 
+  /** Pending debounced save of the contact list, if one is scheduled. */
+  private contactsSaveTimer?: ReturnType<typeof setTimeout>;
+
   /**
-   * @param lidStore  optional persisted, cross-session lid->phone table that backs resolution beyond
-   *                  this session's in-memory map (survives restarts, shared across sessions).
-   * @param sessionId provenance recorded on rows this session writes to the table.
+   * @param lidStore     optional persisted, cross-session lid->phone table that backs resolution beyond
+   *                     this session's in-memory map (survives restarts, shared across sessions).
+   * @param sessionId    provenance recorded on rows this session writes to the table.
+   * @param contactsFile where the contact list is kept between restarts — inside the session's own
+   *                     auth dir, so it is deleted together with the login. See {@link loadContacts}.
    */
   constructor(
     private readonly lidStore?: LidMappingStore,
     private readonly sessionId?: string,
+    private readonly contactsFile?: string,
   ) {
     // Mirrors LidMappingStoreService: a finite default, 0 opts back into unbounded, garbage falls back.
     const maxEntries = resolveNonNegativeIntEnv(
@@ -109,6 +122,82 @@ export class BaileysSessionStore {
     this.lidToPn = new LruMap(maxEntries);
     // Double-keyed (raw + neutral JID per chat), so it needs two slots per chat to cover the same span.
     this.ephemeralByChat = new LruMap(maxEntries * 2);
+    this.loadContacts();
+  }
+
+  /**
+   * The contact list as it stood before the last restart.
+   *
+   * WhatsApp sends the phone's address book — the names YOU saved — once, in the app-state sync
+   * that follows pairing. After a reconnect it sends only what changed since. This map used to be
+   * memory-only, so any restart (a redeploy, a crash, a reboot) emptied it for good and the inbox
+   * fell back to numbers: the first real deployment showed 5 contacts and no saved names after one
+   * redeploy. Kept beside the credentials, so a logout — which deletes that dir — takes it too.
+   *
+   * Best-effort by design: an unreadable file means numbers until names arrive again, never a
+   * session that fails to start.
+   */
+  private loadContacts(): void {
+    if (!this.contactsFile || !existsSync(this.contactsFile)) return;
+    try {
+      const saved = JSON.parse(readFileSync(this.contactsFile, 'utf-8')) as unknown;
+      if (!Array.isArray(saved)) return;
+      for (const record of saved as Partial<BaileysContact>[]) {
+        if (!record || typeof record.id !== 'string') continue;
+        this.contacts.set(record.id, { ...record, id: record.id });
+        const phone = record.phoneNumber ?? (record.id.endsWith('@s.whatsapp.net') ? record.id : undefined);
+        if (record.lid && phone) this.lidToPn.set(record.lid, phone);
+      }
+    } catch {
+      // A corrupt file is replaced on the next save; starting without it is the safe outcome.
+    }
+  }
+
+  /** Schedules a save; a burst of contact events (the initial sync sends hundreds) writes once. */
+  private scheduleContactsSave(): void {
+    if (!this.contactsFile || this.contactsSaveTimer) return;
+    this.contactsSaveTimer = setTimeout(() => {
+      this.contactsSaveTimer = undefined;
+      void this.saveContacts();
+    }, 2_000);
+    this.contactsSaveTimer.unref?.();
+  }
+
+  private async saveContacts(): Promise<void> {
+    const file = this.contactsFile;
+    /*
+     * No dir, no write — and the dir is deliberately not created. It is missing only when a logout
+     * has just deleted the login, and recreating it here would plant the old account's address book
+     * where the next pairing (possibly a different phone) would load it.
+     */
+    if (!file || !existsSync(dirname(file))) return;
+    // Only what a name can be derived from; a profile-picture URL expires and is fetched on demand.
+    const records = [...this.contacts.values()]
+      .filter(c => c.name || c.notify || c.verifiedName || c.lid || c.phoneNumber)
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        notify: c.notify,
+        verifiedName: c.verifiedName,
+        lid: c.lid,
+        phoneNumber: c.phoneNumber,
+      }));
+    try {
+      // Owner-only, and written to a temp file first so a crash mid-write cannot leave half a list.
+      await writeFile(`${file}.tmp`, JSON.stringify(records), { mode: 0o600 });
+      await rename(`${file}.tmp`, file);
+    } catch {
+      // The names are still in memory; the next contact event schedules another attempt.
+    }
+  }
+
+  /** Drops every contact, in memory and pending, when the login they belong to is discarded. */
+  forgetContacts(): void {
+    if (this.contactsSaveTimer) {
+      clearTimeout(this.contactsSaveTimer);
+      this.contactsSaveTimer = undefined;
+    }
+    this.contacts.clear();
   }
 
   upsertContacts(records: Partial<BaileysContact>[] = []): void {
@@ -128,6 +217,7 @@ export class BaileysSessionStore {
         this.persistLidMapping(merged.lid, phone);
       }
     }
+    if (records.length) this.scheduleContactsSave();
   }
 
   upsertChats(records: Partial<Chat>[] = []): void {
@@ -416,6 +506,12 @@ export class BaileysSessionStore {
         if (viaPhone) {
           return viaPhone;
         }
+        /*
+         * No name anywhere, but the phone is known: show the phone. Falling through to
+         * `userPart(id)` printed the LID's digits — `61285156819140` where the chat's own id had
+         * already been resolved to `923302417530` — which looks like a number and is nobody's.
+         */
+        return userPart(pn);
       }
     }
     return userPart(id);

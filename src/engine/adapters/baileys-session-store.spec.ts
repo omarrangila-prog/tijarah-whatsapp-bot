@@ -1,6 +1,9 @@
 import { BaileysSessionStore } from './baileys-session-store';
 import type { LidMappingStore } from '../identity/lid-mapping-store.service';
 import { userPart } from '../identity/wa-id';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('BaileysSessionStore', () => {
   let store: BaileysSessionStore;
@@ -258,6 +261,102 @@ describe('BaileysSessionStore', () => {
     it('falls back to the raw user-part when nothing is known (last resort)', () => {
       store.upsertChats([{ id: '628333@s.whatsapp.net' }]);
       expect(store.listChats()[0].name).toBe('628333');
+    });
+
+    it("shows a @lid chat's phone number, not the lid digits, when no name is known", () => {
+      // Live inbox, 2026-10-06: the chat id resolved to 923302417530 but its name read
+      // "61285156819140" — the lid, which looks like a phone number and belongs to nobody.
+      store.upsertChats([{ id: '61285156819140@lid' }]);
+      store.addLidMappings([{ lid: '61285156819140@lid', pn: '923302417530@s.whatsapp.net' }]);
+
+      const [chat] = store.listChats();
+
+      expect(chat.id).toBe('923302417530@c.us');
+      expect(chat.name).toBe('923302417530');
+    });
+
+    it('still shows the lid digits when the phone is genuinely unknown', () => {
+      store.upsertChats([{ id: '61285156819140@lid' }]);
+      expect(store.listChats()[0].name).toBe('61285156819140');
+    });
+  });
+
+  describe('saved contact names survive a restart', () => {
+    /*
+     * The address book arrives once, after pairing. Memory-only, it was lost on the first redeploy
+     * of the live deployment and the inbox fell back to numbers for good.
+     */
+    let dir: string;
+    let file: string;
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'baileys-contacts-'));
+      file = join(dir, 'contacts.json');
+      jest.useFakeTimers({ doNotFake: ['setImmediate'] });
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    /** Fires the debounce, then lets the asynchronous disk write finish (bounded, not timed). */
+    const flush = async (done: () => boolean = () => existsSync(file)): Promise<void> => {
+      jest.advanceTimersByTime(2_000);
+      for (let i = 0; i < 500 && !done(); i++) await new Promise(r => setImmediate(r));
+    };
+
+    it('reloads names into a fresh store, as after a restart', async () => {
+      const before = new BaileysSessionStore(undefined, 's1', file);
+      before.upsertContacts([
+        { id: '923302417530@s.whatsapp.net', name: 'Hafiz Usman' },
+        { id: '61285156819140@lid', lid: '61285156819140@lid', phoneNumber: '923302417530@s.whatsapp.net' },
+      ]);
+      await flush();
+
+      const after = new BaileysSessionStore(undefined, 's1', file);
+      after.upsertChats([{ id: '61285156819140@lid' }]);
+
+      // The name AND the lid->phone pair both came back, so the lid chat resolves to the saved name.
+      expect(after.listChats()[0].name).toBe('Hafiz Usman');
+      expect(after.findContact('923302417530@c.us')?.isMyContact).toBe(true);
+    });
+
+    it('writes once for a burst of contact events', async () => {
+      const store = new BaileysSessionStore(undefined, 's1', file);
+      for (let i = 0; i < 50; i++) store.upsertContacts([{ id: `92300000${1000 + i}@s.whatsapp.net`, name: `C${i}` }]);
+      expect(existsSync(file)).toBe(false); // debounced: nothing yet
+      await flush();
+      expect(JSON.parse(readFileSync(file, 'utf-8'))).toHaveLength(50);
+    });
+
+    it('keeps the file owner-only — it is a list of names and phone numbers', async () => {
+      const store = new BaileysSessionStore(undefined, 's1', file);
+      store.upsertContacts([{ id: '923302417530@s.whatsapp.net', name: 'Hafiz Usman' }]);
+      await flush();
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    });
+
+    it('does not recreate a login dir that a logout deleted', async () => {
+      // Recreating it would plant this account's address book where the next pairing — possibly a
+      // different phone — would load it.
+      const store = new BaileysSessionStore(undefined, 's1', file);
+      store.upsertContacts([{ id: '923302417530@s.whatsapp.net', name: 'Hafiz Usman' }]);
+      rmSync(dir, { recursive: true, force: true });
+      await flush(() => false);
+      expect(existsSync(dir)).toBe(false);
+    });
+
+    it('forgets every name, and cancels a pending save, when the login is discarded', async () => {
+      const store = new BaileysSessionStore(undefined, 's1', file);
+      store.upsertContacts([{ id: '923302417530@s.whatsapp.net', name: 'Hafiz Usman' }]);
+      store.forgetContacts();
+      await flush(() => false);
+      expect(store.listContacts()).toHaveLength(0);
+      expect(existsSync(file)).toBe(false);
+    });
+
+    it('starts cleanly from a corrupt file instead of failing the session', () => {
+      writeFileSync(file, '{not json');
+      expect(() => new BaileysSessionStore(undefined, 's1', file)).not.toThrow();
     });
   });
 

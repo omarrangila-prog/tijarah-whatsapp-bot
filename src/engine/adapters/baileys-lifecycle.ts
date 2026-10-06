@@ -74,6 +74,7 @@ export interface BaileysLifecycleHost {
   extractPhone(id: string | undefined): string | null;
   /** Persist contact records pushed by the socket (contacts.upsert/update, messaging-history.set). */
   upsertContacts: BaileysSessionStore['upsertContacts'];
+  forgetContacts: BaileysSessionStore['forgetContacts'];
   /** Persist chat records pushed by the socket (chats.upsert/update, messaging-history.set). */
   upsertChats: BaileysSessionStore['upsertChats'];
   /** Learn lid<->phone mappings pushed by the socket (messaging-history.set, lid-mapping.update). */
@@ -775,6 +776,9 @@ export class BaileysLifecycle {
    * is incomplete), not be swallowed.
    */
   private async clearAuthState(): Promise<void> {
+    // The saved address book belongs to the login being discarded; the next pairing may be a
+    // different phone, so it must not inherit these names from memory or from a pending save.
+    this.host.forgetContacts();
     try {
       await fs.promises.rm(this.host.authPath, { recursive: true, force: true });
       this.host.logger.log('Cleared Baileys auth state', { authPath: this.host.authPath });

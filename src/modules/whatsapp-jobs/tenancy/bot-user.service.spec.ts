@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import { DataSource } from 'typeorm';
 import { BotUser } from './bot-user.entity';
-import { BotUserService, toLocalForm, type HostClient } from './bot-user.service';
+import { BotUserService, toLocalForm, toNationalForm, type HostClient } from './bot-user.service';
 
 /**
  * A stand-in for Tijarah's client directory, over a real socket.
@@ -59,26 +59,41 @@ describe('resolving a number through the host directory', () => {
     process.env.TIJARAH_QUEUE_BASE_URL = d.base;
   };
 
-  it('asks by phone in the local form, the way the directory stores numbers', async () => {
-    directory = await startDirectory(q => (q.get('cont') === '03000000000' ? [TESTING] : []));
+  /*
+   * The stand-in answers exactly as the live directory did on 2026-10-06: it STORES
+   * `03000000000` but matches only `cont=3000000000`, and says "No Records" for the stored form and
+   * the international one. Asking in the stored form first is what made every client unregistered.
+   */
+  const liveDirectory = (q: URLSearchParams) => (q.get('cont') === '3000000000' ? [TESTING] : []);
+
+  it('asks in the national form first, the one the live directory actually matches', async () => {
+    directory = await startDirectory(liveDirectory);
     point(directory);
 
     const outcome = await service.lookup('923000000000');
 
     expect(outcome.kind).toBe('registered');
-    expect(directory.asked[0]).toContain('cont=03000000000');
+    expect(directory.asked).toHaveLength(1);
+    expect(directory.asked[0]).toContain('cont=3000000000');
     expect(directory.asked[0]).toContain('email=0');
     expect(directory.asked[0]).toContain('bname=0');
   });
 
-  it('falls back to the international form before giving up', async () => {
+  it('finds the client whichever spelling the person messages from', async () => {
+    directory = await startDirectory(liveDirectory);
+    point(directory);
+
+    expect((await service.lookup('03000000000')).kind).toBe('registered');
+  });
+
+  it('still tries the stored and international forms, in case the host is fixed to match them', async () => {
     directory = await startDirectory(q => (q.get('cont') === '923000000000' ? [TESTING] : []));
     point(directory);
 
     const outcome = await service.lookup('03000000000');
 
     expect(outcome.kind).toBe('registered');
-    expect(directory.asked).toHaveLength(2);
+    expect(directory.asked).toHaveLength(3);
   });
 
   it('remembers one answer so the directory is asked once per number', async () => {
@@ -149,6 +164,12 @@ describe('resolving a number through the host directory', () => {
 });
 
 describe('phone spellings', () => {
+  it('turns any spelling into the national form the directory matches', () => {
+    expect(toNationalForm('923000000000')).toBe('3000000000');
+    expect(toNationalForm('03000000000')).toBe('3000000000');
+    expect(toNationalForm('3000000000')).toBe('3000000000');
+  });
+
   it('turns the WhatsApp form into the local one the directory stores', () => {
     expect(toLocalForm('923000000000')).toBe('03000000000');
     expect(toLocalForm('03000000000')).toBe('03000000000');

@@ -177,7 +177,11 @@ export class TijarahQueueService implements OnApplicationBootstrap, OnModuleDest
        * create one.
        */
       const idempotencyKey = `${TIJARAH_SOURCE}-queue-${queueId}`;
-      if (await this.jobs.findOne({ where: { idempotencyKey } })) continue;
+      const existing = await this.jobs.findOne({ where: { idempotencyKey } });
+      if (existing) {
+        await this.redeliverIfOnlyRecorded(existing);
+        continue;
+      }
 
       const isLedger = documentType.endsWith('_ledger');
       const parameters: Record<string, unknown> = {
@@ -228,6 +232,55 @@ export class TijarahQueueService implements OnApplicationBootstrap, OnModuleDest
       }
     }
     return created;
+  }
+
+  /**
+   * Gives a job that was only *recorded* a real delivery, once real delivery is on.
+   *
+   * In demonstration mode the transport stamps a `mock.` id and transmits nothing, and
+   * `acknowledgeDelivered` rightly refuses to tell the host about it — so the host keeps offering
+   * the row. But the row's idempotency key already has a job, so the import skipped it, and the
+   * job sat at SENT. Switching demonstration mode off then delivered nothing: the first real
+   * deployment had four of Tijarah's invoices stuck exactly like that.
+   *
+   * SENT is otherwise never re-queued (job-status.ts) because a sent document cannot be unsent.
+   * A `mock.` send never reached a phone, so re-queuing it keeps that rule's intent. Only rows the
+   * host is still offering reach this — the call site is the import of a still-pending row — and
+   * only while the real transport is selected, so a demonstration instance never re-sends.
+   */
+  private async redeliverIfOnlyRecorded(job: WhatsAppDocumentJob): Promise<boolean> {
+    const realDelivery = process.env.WHATSAPP_JOBS_MOCK === 'false';
+    const onlyRecorded = job.status === 'SENT' && (job.whatsappMessageId ?? '').startsWith('mock.');
+    if (!realDelivery || !onlyRecorded || job.sourceAckAt) return false;
+
+    const now = new Date();
+    await this.jobs.update(
+      { id: job.id, status: 'SENT' },
+      {
+        status: 'PENDING',
+        whatsappMessageId: null,
+        sentAt: null,
+        completedAt: null,
+        attemptCount: 0,
+        nextRetryAt: null,
+        errorCode: null,
+        errorMessage: null,
+        claimedBy: null,
+        claimedAt: null,
+        processingLeaseExpiresAt: null,
+        updatedAt: now,
+        timeline: [
+          ...(job.timeline ?? []),
+          {
+            at: now.toISOString(),
+            status: 'PENDING',
+            detail: 'Re-queued: it was only recorded in demonstration mode, and real delivery is now on',
+          },
+        ],
+      },
+    );
+    this.logger.log(`${job.reference} was only recorded in demonstration mode — re-queued for real delivery`);
+    return true;
   }
 
   /** Tells the host about every delivered job it has not yet been told about. */

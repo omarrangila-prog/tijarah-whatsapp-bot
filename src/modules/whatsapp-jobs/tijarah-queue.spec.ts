@@ -222,6 +222,67 @@ describe('Tijarah host queue', () => {
     expect((await service.findByReference(job.reference)).sourceAckAt).toBeNull();
   });
 
+  describe('a row that was only recorded, once real delivery is switched on', () => {
+    /*
+     * The live deployment had four of Tijarah's invoices sitting at SENT with `mock.` ids: never
+     * acknowledged (correctly), so the host kept offering them — but the import skipped them as
+     * already known, so switching demonstration mode off would have delivered nothing.
+     */
+    const recordOnly = async (): Promise<WhatsAppDocumentJob> => {
+      pending = [row()];
+      await queue.importPending();
+      const [job] = await service.list({ limit: 5 });
+      await ds
+        .getRepository(WhatsAppDocumentJob)
+        .update({ id: job.id }, { status: 'SENT', sentAt: new Date(), whatsappMessageId: 'mock.abc123' });
+      return job;
+    };
+    afterEach(() => {
+      delete process.env.WHATSAPP_JOBS_MOCK;
+    });
+
+    it('re-queues it for a real send when the host offers it again', async () => {
+      const job = await recordOnly();
+      process.env.WHATSAPP_JOBS_MOCK = 'false';
+
+      await queue.importPending();
+
+      const after = await service.findByReference(job.reference);
+      expect(after.status).toBe('PENDING');
+      expect(after.whatsappMessageId).toBeNull();
+      expect(after.sentAt).toBeNull();
+      expect(after.attemptCount).toBe(0);
+      expect(after.timeline?.at(-1)?.detail).toMatch(/demonstration mode/i);
+      // Still one job: re-queued in place, not duplicated.
+      expect(await ds.getRepository(WhatsAppDocumentJob).count()).toBe(1);
+    });
+
+    it('leaves it alone while demonstration mode is still on', async () => {
+      const job = await recordOnly();
+      // WHATSAPP_JOBS_MOCK unset is demonstration mode — re-sending there would loop forever.
+
+      await queue.importPending();
+
+      expect((await service.findByReference(job.reference)).status).toBe('SENT');
+    });
+
+    it('never re-sends a document that genuinely reached a phone', async () => {
+      pending = [row()];
+      await queue.importPending();
+      const [job] = await service.list({ limit: 5 });
+      await ds
+        .getRepository(WhatsAppDocumentJob)
+        .update({ id: job.id }, { status: 'SENT', sentAt: new Date(), whatsappMessageId: '3EB06B90A7D374D76FC0F8' });
+      process.env.WHATSAPP_JOBS_MOCK = 'false';
+
+      await queue.importPending();
+
+      const after = await service.findByReference(job.reference);
+      expect(after.status).toBe('SENT');
+      expect(after.whatsappMessageId).toBe('3EB06B90A7D374D76FC0F8');
+    });
+  });
+
   it('acknowledges a genuine WhatsApp delivery', async () => {
     pending = [row()];
     await queue.importPending();
