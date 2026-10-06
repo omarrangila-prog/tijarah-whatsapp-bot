@@ -246,6 +246,8 @@ services:
       # Serve only numbers mapped to a company; tell everyone else how to get registered.
       - BOT_REQUIRE_REGISTRATION=${BOT_REQUIRE_REGISTRATION:-}
       - BOT_REGISTRATION_CONTACT=${BOT_REGISTRATION_CONTACT:-}
+      # true = tell non-clients how to register. Unset = stay silent and leave them to the inbox.
+      - BOT_REGISTRATION_REPLY=${BOT_REGISTRATION_REPLY:-}
       # HTTP server tuning.
       - REQUEST_TIMEOUT_MS=${REQUEST_TIMEOUT_MS:-}
       - HEADERS_TIMEOUT_MS=${HEADERS_TIMEOUT_MS:-}

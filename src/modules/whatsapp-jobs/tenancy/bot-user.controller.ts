@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Param,
   Put,
+  Query,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -15,6 +16,7 @@ import { BotUserService } from './bot-user.service';
 import { UpsertBotUserDto } from './bot-user.dto';
 import { normalizeWhatsAppNumber } from '../providers/whatsapp-delivery.provider';
 import type { BotUser } from './bot-user.entity';
+import type { HostClient } from './bot-user.service';
 
 /**
  * Who the bot is allowed to serve, and as which company.
@@ -34,6 +36,14 @@ export class BotUserController {
   @ApiOperation({ summary: 'List the WhatsApp numbers registered with the bot and their company' })
   async list(): Promise<BotUser[]> {
     return this.users.list();
+  }
+
+  @Get('lookup')
+  @RequireRole(ApiKeyRole.ADMIN)
+  @ApiOperation({ summary: "Look a phone number up in Tijarah's client directory, to pick its company" })
+  async lookup(@Query('phone') phone: string): Promise<HostClient[]> {
+    if (!phone?.trim()) throw new UnprocessableEntityException('phone is required');
+    return this.users.lookupDirectory(phone);
   }
 
   @Put()

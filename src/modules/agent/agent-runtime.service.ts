@@ -16,6 +16,11 @@ import { PermissionGuard } from '../../integrations/whatsapp/permission-guard';
 import { scanForInjection, fenceUntrusted } from './injection-guard';
 import { DraftService } from '../whatsapp-jobs/drafts/draft.service';
 import { BotUserService } from '../whatsapp-jobs/tenancy/bot-user.service';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { bootstrapKeyFilePath } from '../auth/bootstrap-key-file';
+import { writeSecretFile } from '../../common/utils/secret-file';
+import type { CreateApiKeyDto } from '../auth/dto';
 import {
   REASONING_PROVIDERS,
   supportsReasoning,
@@ -111,6 +116,73 @@ export class AgentRuntime {
     return key && key.trim().length > 0 ? key.trim() : null;
   }
 
+  private agentKeyCache: string | null = null;
+  private agentKeyPending: Promise<string | null> | null = null;
+  private warnedStaleAgentKey = false;
+
+  /**
+   * The key the agent acts as — and one it can always get.
+   *
+   * It used to be only `AGENT_API_KEY` from the environment, which an operator had to mint and
+   * paste. On the first real deployment that failed twice: the database was rebuilt, the pasted
+   * key stopped existing, and every client request came back "The tool failed: Invalid API key"
+   * while the setting still looked filled in. Now: the configured key if it validates, else the
+   * key this agent saved for itself, else a new OPERATOR key minted and saved owner-only beside
+   * the bootstrap key. OPERATOR because no tool requires more, and the sender's own role still
+   * narrows every call on top of it.
+   *
+   * `force` drops the cached key — used when a call is refused mid-run, e.g. after a pepper change.
+   */
+  private async resolveAgentKey(force = false): Promise<string | null> {
+    if (force) this.agentKeyCache = null;
+    if (this.agentKeyCache) return this.agentKeyCache;
+    this.agentKeyPending ??= this.provisionAgentKey().finally(() => {
+      this.agentKeyPending = null;
+    });
+    this.agentKeyCache = await this.agentKeyPending;
+    return this.agentKeyCache;
+  }
+
+  private async provisionAgentKey(): Promise<string | null> {
+    const configured = this.agentKey;
+    if (configured && (await this.keyIsValid(configured))) return configured;
+    if (configured && !this.warnedStaleAgentKey) {
+      this.warnedStaleAgentKey = true;
+      this.logger.warn('AGENT_API_KEY is set but no longer valid — using a self-provisioned agent key instead');
+    }
+
+    const file = join(dirname(bootstrapKeyFilePath()), '.agent-key');
+    const saved = existsSync(file) ? readFileSync(file, 'utf-8').trim() : '';
+    if (saved && (await this.keyIsValid(saved))) return saved;
+
+    try {
+      const { rawKey } = await this.authService.createApiKey({
+        name: 'WhatsApp agent (self-provisioned)',
+        role: ApiKeyRole.OPERATOR,
+      });
+      try {
+        writeSecretFile(file, rawKey);
+      } catch (error) {
+        // Unsaved, the key still works for this process; the next restart mints another.
+        this.logger.warn(`could not save the agent key: ${(error as Error).message}`);
+      }
+      this.logger.log('minted a new agent API key (OPERATOR) for tool calls');
+      return rawKey;
+    } catch (error) {
+      this.logger.error(`could not provision an agent API key: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  private async keyIsValid(rawKey: string): Promise<boolean> {
+    try {
+      await this.authService.validateApiKey(rawKey);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Whether this number is part-way through composing a document.
    *
@@ -127,7 +199,7 @@ export class AgentRuntime {
    */
   private async registrationGate(
     message: NormalizedAgentMessage,
-  ): Promise<{ ok: true } | { ok: false; reply: string; reason: string }> {
+  ): Promise<{ ok: true } | { ok: false; reply: string | null; reason: string }> {
     const businessName = process.env.WHATSAPP_BUSINESS_NAME?.replace(/^"|"$/g, '') || 'the bot';
     const contact = process.env.BOT_REGISTRATION_CONTACT?.trim();
     let users: BotUserService;
@@ -165,6 +237,19 @@ export class AgentRuntime {
       };
     }
 
+    /*
+     * Not a client: silence, unless the deployment asks for the registration notice.
+     *
+     * The bot runs on the business's own number, so most people who message it are not clients
+     * at all — prospects asking how digital invoicing works, suppliers, friends. Telling them
+     * "this number is not registered" answered a question nobody asked, and on the first live day
+     * it drew angry replies. They are now left to the team in the inbox, which is where a human
+     * conversation belongs. BOT_REGISTRATION_REPLY=true restores the notice for a deployment on a
+     * dedicated bot number, where only would-be clients ever write.
+     */
+    if (process.env.BOT_REGISTRATION_REPLY !== 'true') {
+      return { ok: false, reply: null, reason: 'Not a registered client' };
+    }
     return {
       ok: false,
       reply:
@@ -256,6 +341,46 @@ export class AgentRuntime {
    * A provider that fails is logged with the reason, because "the bot got quieter" is not a
    * symptom anyone can act on.
    */
+  /** Per provider: when it last answered, and the last error it gave. */
+  private readonly providerHealth = new Map<
+    string,
+    { lastOkAt: string | null; lastError: string | null; lastErrorAt: string | null }
+  >();
+
+  private noteProvider(id: string, error: Error | null): void {
+    const health = this.providerHealth.get(id) ?? { lastOkAt: null, lastError: null, lastErrorAt: null };
+    if (error) {
+      health.lastError = error.message.slice(0, 300);
+      health.lastErrorAt = new Date().toISOString();
+    } else {
+      health.lastOkAt = new Date().toISOString();
+    }
+    this.providerHealth.set(id, health);
+  }
+
+  /**
+   * Which reasoners exist, which are configured, and how each last fared.
+   *
+   * Without this, a dead key was invisible from outside: every reply quietly came from the
+   * rule-based fallback and the only trace was a warning in the container log. Errors are the
+   * providers' own messages, which never contain a key — keys travel in headers.
+   */
+  reasoningStatus(): Array<{
+    id: string;
+    model: string | null;
+    available: boolean;
+    lastOkAt: string | null;
+    lastError: string | null;
+    lastErrorAt: string | null;
+  }> {
+    return this.providers.map(provider => ({
+      id: provider.id,
+      model: provider.model ?? null,
+      available: provider.isAvailable(),
+      ...(this.providerHealth.get(provider.id) ?? { lastOkAt: null, lastError: null, lastErrorAt: null }),
+    }));
+  }
+
   private async reasonWithFallback(
     request: Parameters<ReasoningProvider['reason']>[0],
   ): Promise<{ response: Awaited<ReturnType<ReasoningProvider['reason']>>; provider: ReasoningProvider }> {
@@ -264,9 +389,12 @@ export class AgentRuntime {
 
     for (const provider of candidates) {
       try {
-        return { response: await provider.reason(request), provider };
+        const response = await provider.reason(request);
+        this.noteProvider(provider.id, null);
+        return { response, provider };
       } catch (error) {
         lastError = error as Error;
+        this.noteProvider(provider.id, lastError);
         this.logger.warn(
           `reasoning provider "${provider.id}" failed, trying the next: ${lastError.message.slice(0, 180)}`,
         );
@@ -383,6 +511,10 @@ export class AgentRuntime {
       ) {
         const gate = await this.registrationGate(message);
         if (!gate.ok) {
+          if (gate.reply === null) {
+            // Recorded for the audit trail, answered by nobody: the team picks it up in the inbox.
+            return await this.finish(record, silent('Not a registered client.'), 'ignored', gate.reason, startedAt);
+          }
           const outcome = gate.reason === 'Business chosen' ? 'ok' : 'refused';
           return await this.finish(record, plain(gate.reply), outcome, gate.reason, startedAt);
         }
@@ -625,6 +757,26 @@ export class AgentRuntime {
     return this.invokeAllowed(tool, pinnedInput, message, started);
   }
 
+  /**
+   * One call, retried once with a re-provisioned key if the key itself was refused.
+   *
+   * Only a key refusal is retried — a tool that fails on its own merits must not run twice.
+   */
+  private async invokeWithKeyRecovery(
+    tool: AnyToolDescriptor,
+    input: Record<string, unknown>,
+    rawKey: string,
+  ): Promise<unknown> {
+    try {
+      return await invokeTool(tool, input, rawKey, this.authService);
+    } catch (error) {
+      if (!/invalid api key/i.test(describeToolError(error))) throw error;
+      const fresh = await this.resolveAgentKey(true);
+      if (!fresh || fresh === rawKey) throw error;
+      return invokeTool(tool, input, fresh, this.authService);
+    }
+  }
+
   /** Executes a permitted call through the registry's own invoker. */
   private async invokeAllowed(
     tool: AnyToolDescriptor,
@@ -632,7 +784,7 @@ export class AgentRuntime {
     message: NormalizedAgentMessage,
     started: number,
   ): Promise<{ record: AgentActionRecord; content: string; isError: boolean; approvalId: null }> {
-    const rawKey = this.agentKey;
+    const rawKey = await this.resolveAgentKey();
     if (!rawKey) {
       return {
         record: { tool: tool.name, decision: 'denied', reason: 'No agent API key is configured.' },
@@ -643,7 +795,7 @@ export class AgentRuntime {
     }
 
     try {
-      const result = await invokeTool(tool, input, rawKey, this.authService);
+      const result = await this.invokeWithKeyRecovery(tool, input, rawKey);
       return {
         record: { tool: tool.name, decision: 'allowed', reason: null, ok: true, durationMs: Date.now() - started },
         content: JSON.stringify(result ?? { ok: true }).slice(0, 8000),
@@ -783,7 +935,7 @@ export class AgentRuntime {
    */
   async executeApproved(approvalId: string, toolName: string, toolInput: Record<string, unknown>): Promise<string> {
     const tool = this.registry.get(toolName);
-    const rawKey = this.agentKey;
+    const rawKey = await this.resolveAgentKey();
     /*
      * Approved actions are not all sends.
      *

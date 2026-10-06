@@ -72,6 +72,7 @@ export const BLANK_SHADOWED_ENV_KEYS: string[] = [
   'APPROVAL_POLL_ENABLED',
   'APPROVAL_POLL_SECONDS',
   'BOT_REQUIRE_REGISTRATION',
+  'BOT_REGISTRATION_REPLY',
   'BOT_REGISTRATION_CONTACT',
   // Inbound-media knobs. Not dashboard-managed, but every blank compose forward must be cleared or
   // the empty value shadows .env / data/.env.generated — which is why the gate above requires an

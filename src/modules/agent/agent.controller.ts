@@ -4,6 +4,7 @@ import type { Repository } from 'typeorm';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentApiKey, RequireRole } from '../auth/decorators/auth.decorators';
 import { ApiKey, ApiKeyRole } from '../auth/entities/api-key.entity';
+import { AgentRuntime } from './agent-runtime.service';
 import { ApprovalService } from './approval.service';
 import { AgentEventService } from './agent-event.service';
 import { PermissionGuard } from '../../integrations/whatsapp/permission-guard';
@@ -35,6 +36,7 @@ export class AgentController {
     private readonly permissions: PermissionGuard,
     private readonly sessions: SessionManager,
     private readonly gateway: WhatsAppGateway,
+    private readonly runtime: AgentRuntime,
     @InjectRepository(AgentTurn, 'data') private readonly turnRows: Repository<AgentTurn>,
     @InjectRepository(AgentApproval, 'data') private readonly approvalRows: Repository<AgentApproval>,
     @InjectRepository(AgentEvent, 'data') private readonly eventRows: Repository<AgentEvent>,
@@ -68,6 +70,7 @@ export class AgentController {
       pendingApprovals: pending.length,
       outboundSession: outboundSession ?? null,
       whatsapp: outboundSession ? await this.sessions.status() : null,
+      reasoning: this.runtime.reasoningStatus(),
     };
   }
 

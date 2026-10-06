@@ -35,14 +35,13 @@ function startHost(
   });
 }
 
-const ask = (over: Partial<ReasoningRequest> = {}): ReasoningRequest =>
-  ({
-    system: 'You are a careful assistant.',
-    messages: [{ role: 'user', content: 'send me the customer ledger' }],
-    tools: [],
-    maxTokens: 512,
-    ...over,
-  }) as ReasoningRequest;
+const ask = (over: Partial<ReasoningRequest> = {}): ReasoningRequest => ({
+  system: 'You are a careful assistant.',
+  messages: [{ role: 'user', content: 'send me the customer ledger' }],
+  tools: [],
+  maxTokens: 512,
+  ...over,
+});
 
 const said = (content: string | null, toolCalls?: unknown[]) => ({
   json: {

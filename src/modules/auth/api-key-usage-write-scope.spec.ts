@@ -174,6 +174,9 @@ describe('validateApiKey entrypoint coverage', () => {
   /** Every known caller, with the surface it authenticates. */
   const KNOWN_CALLERS = new Map<string, string>([
     ['core/agent-tools/tool-invoker.ts', 'agent tool invocation'],
+    // Checks the agent's OWN service key before using it, so a key deleted with a rebuilt database
+    // is replaced instead of failing every client request. Runs once per (re)provision, not per call.
+    ['modules/agent/agent-runtime.service.ts', 'agent service key self-check'],
     ['common/security/bull-board-auth.middleware.ts', 'queue dashboard middleware'],
     ['modules/auth/guards/api-key.guard.ts', 'REST route guard'],
     ['modules/events/events.gateway.ts', 'websocket connect and per-subscribe re-validation'],

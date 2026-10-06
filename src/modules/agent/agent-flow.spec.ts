@@ -586,16 +586,35 @@ describe('WhatsApp → agent → WhatsApp', () => {
       process.env.BOT_REGISTRATION_CONTACT = 'Hafiz Usman on 0330 2417530';
     });
 
-    it('tells an unregistered customer how to get set up, and runs nothing', async () => {
-      const result = await inbound(CUSTOMER, 'send me the customer ledger');
-      expect(result.replied).toBe(true);
+    it('stays silent for someone who is not a client, and runs nothing', async () => {
+      /*
+       * The bot runs on the business's own number. On the first live day, prospects asking how
+       * digital invoicing works were told "this number is not registered" and replied angrily.
+       * A non-client's message is now recorded and left to the team in the inbox.
+       */
+      const result = await inbound(CUSTOMER, 'How does digital invoicing work?');
+
+      expect(result.replied).toBe(false);
       expect(executed).toHaveLength(0);
-      expect(result.text).toMatch(/not registered/i);
-      expect(result.text).toContain('Hafiz Usman on 0330 2417530');
-      // The receivables self-service menu is not for a stranger to a company's books.
-      expect(result.text).not.toMatch(/your balance|statement|invoices/i);
+      expect(transport.sent).toHaveLength(0);
       const turn = await ds.getRepository(AgentTurn).findOne({ where: { senderPhone: `+${CUSTOMER}` } });
-      expect(turn?.outcome).toBe('refused');
+      expect(turn?.outcome).toBe('ignored');
+      expect(turn?.inboundText).toBe('How does digital invoicing work?');
+    });
+
+    it('sends the registration notice only when the deployment asks for it', async () => {
+      // For a dedicated bot number, where only would-be clients ever write.
+      process.env.BOT_REGISTRATION_REPLY = 'true';
+      try {
+        const result = await inbound(CUSTOMER, 'send me the customer ledger');
+        expect(result.replied).toBe(true);
+        expect(result.text).toMatch(/not registered/i);
+        expect(result.text).toContain('Hafiz Usman on 0330 2417530');
+        expect(result.text).not.toMatch(/your balance|statement|invoices/i);
+        expect(executed).toHaveLength(0);
+      } finally {
+        delete process.env.BOT_REGISTRATION_REPLY;
+      }
     });
 
     it('serves a registered number as a Tijarah client, not as a receivables customer', async () => {
@@ -658,17 +677,10 @@ describe('WhatsApp → agent → WhatsApp', () => {
       expect(executed).toHaveLength(0);
     });
 
-    it('tells a stranger how to register instead of dropping them silently', async () => {
-      /*
-       * The ignore policy is right for the receivables deployment, where an unknown number is
-       * a stranger to a business. Here it is how every new Tijarah client arrives — their
-       * number is in neither the CRM nor the admin list — so silence would read as a dead
-       * number rather than as a policy. Nothing runs either way.
-       */
+    it('stays silent for a stranger too — they are handled by people, in the inbox', async () => {
       const result = await inbound(STRANGER, 'send me the ledger');
 
-      expect(result.replied).toBe(true);
-      expect(result.text).toMatch(/not registered/i);
+      expect(result.replied).toBe(false);
       expect(executed).toHaveLength(0);
     });
 

@@ -11,6 +11,7 @@ import type {
 } from '../../services/commandCenter';
 import type { Session } from '../../services/api';
 import { Avatar, ErrorState, Skeleton, TagChip } from '../cc/Primitives';
+import { TijarahClientSection } from './TijarahClientSection';
 import { absoluteTime, chatKindLabel, dateOnly, formatCount, formatWaId } from '../../utils/ccFormat';
 
 interface CustomerPanelProps {
@@ -131,6 +132,9 @@ export function CustomerPanel({
           <ErrorState error={customerError} />
         </div>
       ) : null}
+
+      {/* ── Tijarah client: whether the bot serves this number ──────── */}
+      <TijarahClientSection chatId={conversation.chatId} />
 
       {/* ── Assignment ─────────────────────────────────────────────── */}
       <section className="inbox-cust-section">

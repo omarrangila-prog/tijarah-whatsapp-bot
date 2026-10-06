@@ -131,6 +131,12 @@ export class BotUserService {
     return { whatsAppNo, sid: saved.sid, grp: saved.grp, aYear: saved.aYear, displayName: saved.displayName };
   }
 
+  /** The host's directory entries for a phone, for an operator choosing a company by hand. */
+  async lookupDirectory(phone: string): Promise<HostClient[]> {
+    const whatsAppNo = normalizeWhatsAppNumber(phone);
+    return whatsAppNo ? this.findHostClients(whatsAppNo) : [];
+  }
+
   /**
    * The host's client directory, by phone number.
    *
