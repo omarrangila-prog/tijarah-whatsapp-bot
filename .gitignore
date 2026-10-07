@@ -95,4 +95,5 @@ scripts/rangila/server.log
 
 # Production secrets: API keys and the Gemini key live here
 deploy/.env
+deploy/.deployed
 qr-preview.png

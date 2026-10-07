@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Play,
+  BrainCircuit,
 } from 'lucide-react';
 import {
   request,
@@ -23,6 +24,7 @@ import { useToast } from '../hooks/useToast';
 import { PageHeader } from '../components/PageHeader';
 import { Modal } from '../components/Modal';
 import { buildSendJob, canSend, needsDocumentNumber } from './sendJobRequest';
+import { summariseReasoning, type ReasoningProviderStatus } from './reasoningHealth';
 import './WhatsAppJobs.css';
 
 /**
@@ -83,6 +85,7 @@ export function WhatsAppJobs() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<WhatsAppDocumentJob | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const [reasoning, setReasoning] = useState<ReasoningProviderStatus[] | undefined>(undefined);
 
   const refresh = useCallback(async () => {
     try {
@@ -104,6 +107,15 @@ export function WhatsAppJobs() {
   useEffect(() => {
     void refresh();
     void whatsappJobApi.documentTypes().then(setTypes).catch(() => undefined);
+    /*
+     * Which reasoner is answering clients. Its own request, not part of `refresh`: this screen
+     * polls every two seconds while a job moves, and the answer changes on the scale of a
+     * redeploy. A viewer key may read it, and a server too old to report it leaves it undefined,
+     * which the panel reads as "not set up" rather than an error.
+     */
+    void request<{ reasoning?: ReasoningProviderStatus[] }>('/agent/status')
+      .then(status => setReasoning(status.reasoning))
+      .catch(() => undefined);
   }, [refresh]);
 
   /*
@@ -173,6 +185,8 @@ export function WhatsAppJobs() {
       />
 
       <ConnectionPanel connection={connection} onRefresh={refresh} canWrite={canWrite} />
+
+      <ReasoningPanel providers={reasoning} />
 
       {kpis.some(k => k.received > 0) && <KpiPanel kpis={kpis.filter(k => k.received > 0)} />}
 
@@ -393,6 +407,27 @@ function ConnectionPanel({
           <span className="mono">{connection.lastSuccessfulDelivery.whatsappMessageId}</span>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Whether the bot is understanding sentences, or has fallen back to fixed phrasings.
+ *
+ * The question clients notice first and the one the log answered only in a container. Shown
+ * beside the connection because the two together are the whole "is it working" answer.
+ */
+function ReasoningPanel({ providers }: { providers: ReasoningProviderStatus[] | undefined }) {
+  const health = summariseReasoning(providers);
+  return (
+    <section className="panel reasoning">
+      <div className={`conn-state ${health.level === 'ok' ? 'ok' : health.level === 'degraded' ? 'bad' : 'warn'}`}>
+        <BrainCircuit size={16} />
+        <div>
+          <strong>{health.headline}</strong>
+          {health.advice && <div className="dim small">{health.advice}</div>}
+        </div>
+      </div>
     </section>
   );
 }

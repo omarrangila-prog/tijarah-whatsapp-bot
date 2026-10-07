@@ -72,6 +72,17 @@ function isTransientLaunchFailure(error: unknown): boolean {
 /** Pause between sequential auto-start launches so a burst of Chromium boots does not spike the host. */
 export const AUTOSTART_THROTTLE_MS = 2_000;
 
+/** How often the keep-alive looks for a linked session sitting stopped; see keepLinkedSessionsUp. */
+export const SESSION_KEEP_ALIVE_INTERVAL_MS = 60_000;
+
+/**
+ * How long a linked session must have sat stopped before the keep-alive starts it again.
+ *
+ * The dashboard's Restart is a stop and a start a moment apart; a stop younger than this is
+ * someone mid-way through doing something, not a bot left switched off.
+ */
+export const SESSION_KEEP_ALIVE_GRACE_MS = 90_000;
+
 /**
  * The session-record API: CRUD over the sessions table, aggregate stats, and the thin engine query
  * proxies (QR/pairing/chats/groups/chat-state) behind the controller routes. Every engine LIFECYCLE
@@ -95,6 +106,10 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
   private autoStartRun: Promise<void> = Promise.resolve();
   /** Set at the top of onModuleDestroy so the detached run stops launching further sessions. */
   private shuttingDown = false;
+  /** True until the boot-time auto-start run settles, so the keep-alive never races it. */
+  private autoStarting = false;
+  private keepAliveTimer: NodeJS.Timeout | null = null;
+  private keepAliveRunning = false;
 
   constructor(
     @InjectRepository(Session, 'data')
@@ -179,13 +194,74 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
     // Every liveness probe in that window is a connection refusal, and no probe budget can cover a
     // bound that scales with the session count: the chart's is ~50s and the Dockerfile HEALTHCHECK
     // encodes the same expectation. Awaited on shutdown so a launch in flight is accounted for.
-    this.autoStartRun = this.autoStartSessions().catch((error: unknown) => {
-      // Previously this rejected out of the hook and aborted boot, so a transient database error
-      // during the session scan took the whole gateway down rather than the auto-start.
-      this.logger.error('Auto-start scan failed', error instanceof Error ? error.message : String(error), {
-        action: 'auto_start_scan_failed',
+    this.autoStarting = true;
+    this.autoStartRun = this.autoStartSessions()
+      .catch((error: unknown) => {
+        // Previously this rejected out of the hook and aborted boot, so a transient database error
+        // during the session scan took the whole gateway down rather than the auto-start.
+        this.logger.error('Auto-start scan failed', error instanceof Error ? error.message : String(error), {
+          action: 'auto_start_scan_failed',
+        });
+      })
+      .finally(() => {
+        this.autoStarting = false;
       });
-    });
+
+    /*
+     * Auto-start covers a restart. It did not cover the case that actually left a bot dark for
+     * a night: the number was stopped from the dashboard (a Disconnect, or a Restart whose start
+     * half failed) while still linked, and nothing ever started it again. A linked session is
+     * one that should be running, so the same flag keeps it running.
+     */
+    this.keepAliveTimer = setInterval(() => void this.keepLinkedSessionsUp(), SESSION_KEEP_ALIVE_INTERVAL_MS);
+    // Like the watchdog, this must never keep the process alive on its own.
+    this.keepAliveTimer.unref();
+  }
+
+  /**
+   * Starts every linked session this node may claim that has sat stopped past the grace period.
+   *
+   * "Linked" is a non-null phone. A Log out, and an unlink from the phone, both clear it, so a
+   * number someone deliberately unpaired is left alone — starting it could only show a QR
+   * nobody is there to scan. A session with anything alive here (an engine, a start in flight,
+   * a reconnect armed) is the reconnect machinery's, not this.
+   */
+  async keepLinkedSessionsUp(now: number = Date.now()): Promise<void> {
+    if (this.shuttingDown || this.autoStarting || this.keepAliveRunning) return;
+    this.keepAliveRunning = true;
+    try {
+      const claimable = this.ownership?.claimableWhere() ?? [{}];
+      const stopped = await this.sessionRepository.find({
+        where: claimable.map(clause => ({ ...clause, phone: Not(IsNull()), status: SessionStatus.DISCONNECTED })),
+      });
+      for (const session of stopped) {
+        if (this.shuttingDown) return;
+        if (this.engineLifecycle.isEngineActive(session.id)) continue;
+        // Compared here rather than in the query: the column's stored format differs by driver.
+        const since = session.updatedAt ? new Date(session.updatedAt).getTime() : 0;
+        if (now - since < SESSION_KEEP_ALIVE_GRACE_MS) continue;
+        try {
+          await this.start(session.id);
+          this.logger.log(`Keep-alive restarted session: ${session.name}`, {
+            sessionId: session.id,
+            action: 'keep_alive_start',
+          });
+        } catch (error: unknown) {
+          this.logger.warn(`Keep-alive could not start session: ${session.name}`, {
+            sessionId: session.id,
+            error: error instanceof Error ? error.message : String(error),
+            action: 'keep_alive_start_failed',
+          });
+        }
+      }
+    } catch (error: unknown) {
+      this.logger.warn('Keep-alive scan failed', {
+        error: error instanceof Error ? error.message : String(error),
+        action: 'keep_alive_scan_failed',
+      });
+    } finally {
+      this.keepAliveRunning = false;
+    }
   }
 
   /**
@@ -245,6 +321,10 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
     // may start mid-shutdown. stop() is idempotent, so a second onModuleDestroy call stays safe.
     this.shuttingDown = true;
     this.watchdog.stop();
+    if (this.keepAliveTimer) {
+      clearInterval(this.keepAliveTimer);
+      this.keepAliveTimer = null;
+    }
     this.ownership?.stopHeartbeat();
     // A SIGTERM during boot can land while the detached auto-start is mid-launch. Let that one
     // settle — the flag above stops the loop taking another — so the engine it registers is torn

@@ -20,7 +20,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { bootstrapKeyFilePath } from '../auth/bootstrap-key-file';
 import { writeSecretFile } from '../../common/utils/secret-file';
-import type { CreateApiKeyDto } from '../auth/dto';
 import {
   REASONING_PROVIDERS,
   supportsReasoning,

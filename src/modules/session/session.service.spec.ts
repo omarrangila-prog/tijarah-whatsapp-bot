@@ -3,7 +3,7 @@ import { SessionRestrictionStore } from './session-restriction-store.service';
 import { PresenceStore } from './presence-store.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
-import { Repository, DataSource, In, QueryFailedError } from 'typeorm';
+import { Repository, DataSource, In, QueryFailedError, type FindManyOptions } from 'typeorm';
 import {
   NotFoundException,
   ConflictException,
@@ -15,7 +15,12 @@ import {
 } from '@nestjs/common';
 import { EngineTransportError } from '../../common/errors/engine-transport.error';
 import { ConfigService } from '@nestjs/config';
-import { SessionService, AUTOSTART_THROTTLE_MS } from './session.service';
+import {
+  SessionService,
+  AUTOSTART_THROTTLE_MS,
+  SESSION_KEEP_ALIVE_GRACE_MS,
+  SESSION_KEEP_ALIVE_INTERVAL_MS,
+} from './session.service';
 import { ACK_RECONCILE_DELAY_MS } from './message-projector.service';
 import { SessionEngineLifecycle } from './session-engine-lifecycle.service';
 import { Session, SessionStatus } from './entities/session.entity';
@@ -2304,6 +2309,108 @@ describe('SessionService', () => {
         jest.clearAllTimers();
         jest.useRealTimers();
       }
+    });
+  });
+
+  describe('keep-alive', () => {
+    const NOW = Date.parse('2026-10-07T10:00:00Z');
+    const linked = (overrides: Partial<Session> = {}): Session =>
+      createMockSession({
+        phone: '923311404440',
+        status: SessionStatus.DISCONNECTED,
+        updatedAt: new Date(NOW - SESSION_KEEP_ALIVE_GRACE_MS - 1_000),
+        ...overrides,
+      });
+
+    let start: jest.SpyInstance;
+    beforeEach(() => {
+      start = jest.spyOn(service, 'start').mockResolvedValue(createMockSession({ status: SessionStatus.INITIALIZING }));
+    });
+
+    it('starts a linked number left stopped past the grace period', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([linked()]);
+
+      await service.keepLinkedSessionsUp(NOW);
+
+      expect(start).toHaveBeenCalledWith('sess-uuid-1');
+    });
+
+    it('only ever looks at linked, stopped sessions — a logged-out number has no phone and is left alone', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([]);
+
+      await service.keepLinkedSessionsUp(NOW);
+
+      const [options] = (repository.find as jest.Mock).mock.calls[0] as [FindManyOptions<Session>];
+      const where = options.where as Array<Record<string, unknown>>;
+      expect(where).toEqual([expect.objectContaining({ status: SessionStatus.DISCONNECTED })]);
+      expect(JSON.stringify(where[0].phone)).toContain('isNull');
+      expect(start).not.toHaveBeenCalled();
+    });
+
+    it('leaves a stop younger than the grace period alone — a Restart is a stop and a start a moment apart', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([linked({ updatedAt: new Date(NOW - 30_000) })]);
+
+      await service.keepLinkedSessionsUp(NOW);
+
+      expect(start).not.toHaveBeenCalled();
+    });
+
+    it('leaves a session with a reconnect in flight to the reconnect machinery', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([linked()]);
+      jest.spyOn(lifecycle, 'isEngineActive').mockReturnValue(true);
+
+      await service.keepLinkedSessionsUp(NOW);
+
+      expect(start).not.toHaveBeenCalled();
+    });
+
+    it('a start that fails does not stop the next number being started, and does not throw', async () => {
+      (repository.find as jest.Mock).mockResolvedValue([linked({ id: 'a' }), linked({ id: 'b' })]);
+      start.mockRejectedValueOnce(new Error('engine init timed out'));
+
+      await expect(service.keepLinkedSessionsUp(NOW)).resolves.toBeUndefined();
+
+      expect(start).toHaveBeenNthCalledWith(1, 'a');
+      expect(start).toHaveBeenNthCalledWith(2, 'b');
+    });
+
+    it('a failed scan is logged, not thrown into the timer', async () => {
+      (repository.find as jest.Mock).mockRejectedValue(new Error('database is locked'));
+
+      await expect(service.keepLinkedSessionsUp(NOW)).resolves.toBeUndefined();
+    });
+
+    describe('timer', () => {
+      const originalFlag = process.env.AUTO_START_SESSIONS;
+      afterEach(async () => {
+        await service.onModuleDestroy();
+        jest.useRealTimers();
+        if (originalFlag === undefined) delete process.env.AUTO_START_SESSIONS;
+        else process.env.AUTO_START_SESSIONS = originalFlag;
+      });
+
+      it('runs every interval when sessions auto-start', async () => {
+        jest.useFakeTimers({ now: NOW });
+        process.env.AUTO_START_SESSIONS = 'true';
+        (repository.find as jest.Mock).mockResolvedValue([]);
+        const sweep = jest.spyOn(service, 'keepLinkedSessionsUp');
+
+        service.onApplicationBootstrap();
+        await jest.advanceTimersByTimeAsync(SESSION_KEEP_ALIVE_INTERVAL_MS);
+
+        expect(sweep).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not run when auto-start is off', async () => {
+        jest.useFakeTimers({ now: NOW });
+        delete process.env.AUTO_START_SESSIONS;
+        const sweep = jest.spyOn(service, 'keepLinkedSessionsUp');
+
+        service.onApplicationBootstrap();
+        await jest.advanceTimersByTimeAsync(SESSION_KEEP_ALIVE_INTERVAL_MS * 3);
+
+        expect(sweep).not.toHaveBeenCalled();
+      });
     });
   });
 
