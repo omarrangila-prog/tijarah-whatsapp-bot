@@ -7,6 +7,10 @@ chat that lands on Tijarah's **approval screen** — never as an accounting entr
 Built on the existing NestJS + React project in this repository. Everything Tijarah-specific
 is additive: no existing route changed behaviour.
 
+> **Using it, not changing it?** **`USER_GUIDE.md`** is written for the office team: setting it
+> up, connecting WhatsApp, adding clients, sending documents, what clients can ask, updating, and
+> what to do when something goes wrong.
+
 ---
 
 ## 1. What works today

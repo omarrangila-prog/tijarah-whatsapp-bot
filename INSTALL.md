@@ -3,6 +3,9 @@
 For whoever runs the server. Two routes: **Docker** (recommended — one container, nothing
 else on the machine touched) or **direct Node** (if Docker is not an option).
 
+Once it is running, **`USER_GUIDE.md`** takes over: logging in, connecting WhatsApp, adding
+clients and day-to-day use.
+
 ---
 
 ## What it needs
