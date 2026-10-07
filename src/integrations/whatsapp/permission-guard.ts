@@ -77,6 +77,8 @@ export interface PermissionRequest {
 const CLIENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   'ListAccountingReports',
   'RequestAccountingReport',
+  // Reads only this client's own remembered customers, so a name can replace an account code.
+  'FindCustomerByName',
   'ListCreatableDocuments',
   'StartDocumentDraft',
   'SetDraftField',

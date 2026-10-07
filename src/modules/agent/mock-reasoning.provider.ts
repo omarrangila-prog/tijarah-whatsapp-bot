@@ -222,10 +222,12 @@ export class MockReasoningProvider implements ReasoningProvider {
           return this.finish(
             [
               'I can help with:',
-              '• a ledger or report — e.g. "send me the customer ledger for C-1005", "trial balance for this year"',
-              '• a new document — e.g. "create a sale invoice for Ahmed Traders, 10 shirts at 1500"',
+              '• *Receivables* — "who owes me", or one customer: "Danyal\u2019s ledger"',
+              '• *Reports* — "trial balance", "balance sheet", "sales book for July to September"',
+              '• *A document* — "invoice 179", or "create a sale invoice for Ahmed Traders, 10 shirts at 1500"',
               '',
-              'Everything is for your own company. A document you create waits on the approval screen in Tijarah Books.',
+              'Dates are optional — say them for a period, leave them out for everything.',
+              'It is all your own company\u2019s books, and it comes back here to you.',
             ].join('\n'),
           );
         }
@@ -474,6 +476,29 @@ function summariseToolResult(raw: string, isError: boolean): string {
         return `${str(row.report) ?? 'Your report'} is on its way — it will arrive here shortly.`;
       }
       return str(row.reason) ?? str(row.message) ?? 'That could not be queued.';
+    }
+    /*
+     * A customer looked up by name. Three answers, and the ambiguous one must read as a
+     * question: offering a list and then picking from it silently is how one customer's
+     * ledger reaches another.
+     */
+    if ('found' in row) {
+      if (row.found === 'one') {
+        const name = str(row.name) ?? 'That customer';
+        const code = str(row.partyCode);
+        return code
+          ? `${name} — account ${code}. Shall I send their ledger?`
+          : `${name} is in your books, but I could not confirm their account code. Please tell me the code.`;
+      }
+      if (row.found === 'several') {
+        const list = Array.isArray(row.customers) ? (row.customers as Array<Record<string, unknown>>) : [];
+        const lines = list
+          .slice(0, 8)
+          .map((c, i) => `${i + 1}. ${str(c.name) ?? '-'}${str(c.partyCode) ? ` (${str(c.partyCode)})` : ''}`)
+          .join('\n');
+        return `More than one customer matches. Which one?\n${lines}`;
+      }
+      return str(row.reason) ?? 'No customer of that name was found.';
     }
     if ('composed' in row) {
       if (row.composed !== true) return str(row.message) ?? 'That could not be drafted.';

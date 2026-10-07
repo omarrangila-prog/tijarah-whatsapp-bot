@@ -4,6 +4,7 @@ import { WhatsAppDocumentJob } from './entities/whatsapp-document-job.entity';
 import { DocumentTypeRegistry } from './entities/document-type-registry.entity';
 import { WhatsAppJobsService } from './whatsapp-jobs.service';
 import { TijarahQueueService, TIJARAH_SOURCE } from './tijarah-queue.service';
+import type { KnownPartyService } from './tenancy/known-party.service';
 
 /**
  * Bringing work in from Tijarah Books, and telling it when the work is done.
@@ -17,6 +18,9 @@ describe('Tijarah host queue', () => {
   let queue: TijarahQueueService;
   let host: Server;
   let pending: unknown[];
+  /** What the queue asked to have remembered: {sid, grp, name, phone} per delivered document. */
+  let remembered: Array<{ sid: number; grp: string; name: string; phone: string }>;
+  let parties: KnownPartyService;
   let marked: number[];
   let markStatus: number;
 
@@ -104,7 +108,14 @@ describe('Tijarah host queue', () => {
     const port = (host.address() as { port: number }).port;
     process.env.TIJARAH_QUEUE_BASE_URL = `http://127.0.0.1:${port}`;
     service = new WhatsAppJobsService(ds.getRepository(WhatsAppDocumentJob), ds.getRepository(DocumentTypeRegistry));
-    queue = new TijarahQueueService(ds.getRepository(WhatsAppDocumentJob), service);
+    remembered = [];
+    parties = {
+      remember: (tenant: { sid: number; grp: string }, name: string, phone: string) => {
+        remembered.push({ ...tenant, name, phone });
+        return Promise.resolve();
+      },
+    } as unknown as KnownPartyService;
+    queue = new TijarahQueueService(ds.getRepository(WhatsAppDocumentJob), service, parties);
     pending = [];
     marked = [];
     markStatus = 200;
@@ -113,6 +124,22 @@ describe('Tijarah host queue', () => {
   afterEach(async () => {
     await ds.destroy();
     delete process.env.TIJARAH_QUEUE_BASE_URL;
+  });
+
+  it('remembers the customer named on a document, so a ledger can later be asked for by name', async () => {
+    pending = [row({ id: 901, contactName: 'DANYAL BHAI - (KAUSAR INNOVATIONS)', contactNumber: '0331 3687287' })];
+    expect(await queue.importPending()).toBe(1);
+
+    expect(remembered).toEqual([
+      { sid: 1006, grp: 'GR', name: 'DANYAL BHAI - (KAUSAR INNOVATIONS)', phone: '923313687287' },
+    ]);
+  });
+
+  it('remembers nothing when the host names nobody', async () => {
+    pending = [row({ id: 902, contactName: '  ' })];
+    expect(await queue.importPending()).toBe(1);
+
+    expect(remembered).toEqual([]);
   });
 
   it('turns a queued row into a job, with the contact number made dialable', async () => {

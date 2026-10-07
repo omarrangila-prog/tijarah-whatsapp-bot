@@ -5,6 +5,8 @@ import { DocumentTypeRegistry } from './entities/document-type-registry.entity';
 import { DocumentDraft } from './drafts/document-draft.entity';
 import { BotUser } from './tenancy/bot-user.entity';
 import { BotUserService } from './tenancy/bot-user.service';
+import { KnownParty } from './tenancy/known-party.entity';
+import { KnownPartyService } from './tenancy/known-party.service';
 import { TijarahApprovalSubmissionAdapter } from './drafts/tijarah-approval.adapter';
 import { ApprovalOutcomeService } from './drafts/approval-outcome.service';
 import { BotUserController } from './tenancy/bot-user.controller';
@@ -74,7 +76,9 @@ const deliveryProvider: Provider = {
 };
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WhatsAppDocumentJob, DocumentTypeRegistry, DocumentDraft, BotUser], 'data')],
+  imports: [
+    TypeOrmModule.forFeature([WhatsAppDocumentJob, DocumentTypeRegistry, DocumentDraft, BotUser, KnownParty], 'data'),
+  ],
   controllers: [
     WhatsAppJobsController,
     BotUserController,
@@ -88,6 +92,7 @@ const deliveryProvider: Provider = {
     TijarahQueueService,
     DraftService,
     BotUserService,
+    KnownPartyService,
     ApprovalOutcomeService,
     approvalSubmission,
     MockWhatsAppProvider,
@@ -102,6 +107,7 @@ const deliveryProvider: Provider = {
     TijarahQueueService,
     DraftService,
     BotUserService,
+    KnownPartyService,
     WHATSAPP_DELIVERY_PROVIDER,
   ],
 })

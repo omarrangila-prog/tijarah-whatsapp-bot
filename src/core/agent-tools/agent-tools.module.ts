@@ -32,6 +32,7 @@ import { reportRequestTools } from './tools/report-request.tools';
 import { draftTools } from './tools/draft.tools';
 import { DraftService } from '../../modules/whatsapp-jobs/drafts/draft.service';
 import { BotUserService } from '../../modules/whatsapp-jobs/tenancy/bot-user.service';
+import { KnownPartyService } from '../../modules/whatsapp-jobs/tenancy/known-party.service';
 import { WhatsAppJobsService } from '../../modules/whatsapp-jobs/whatsapp-jobs.service';
 import { AgentEventService } from '../../modules/agent/agent-event.service';
 import { LEDGER_PORT, type LedgerPort } from '../../integrations/ledger/ledger.port';
@@ -91,6 +92,7 @@ import { LEDGER_PORT, type LedgerPort } from '../../integrations/ledger/ledger.p
           ...reportRequestTools({
             jobs: lazy<WhatsAppJobsService>(WhatsAppJobsService),
             users: lazy<BotUserService>(BotUserService),
+            parties: lazy<KnownPartyService>(KnownPartyService),
           }),
           ...whatsappJobTools({
             jobs: lazy<WhatsAppJobsService>(WhatsAppJobsService),

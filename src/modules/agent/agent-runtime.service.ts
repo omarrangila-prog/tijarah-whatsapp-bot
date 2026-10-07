@@ -35,6 +35,7 @@ import type {
   SenderRole,
 } from '../../integrations/whatsapp/agent-message.types';
 import { buildSystemPrompt } from './agent-prompt';
+import { advance, MENU_TRIGGER, rootMenu, stepFor, type MenuReport } from './client-menu';
 import { toJsonSchema } from './zod-to-json-schema';
 
 /**
@@ -314,6 +315,78 @@ export class AgentRuntime {
     return history;
   }
 
+  /**
+   * The menu's answer to this message, or null to let the reasoning handle it.
+   *
+   * The step is read from the last thing the bot said to this number, so no session is kept
+   * and a restart mid-menu cannot strand anyone. A chosen report is queued through the same
+   * tool a typed request uses, so there is one path to a document and one set of permissions.
+   */
+  private async menuReply(message: NormalizedAgentMessage): Promise<string | null> {
+    const text = message.text?.trim() ?? '';
+    const reports = await this.menuReports();
+    if (reports.length === 0) return null;
+
+    if (MENU_TRIGGER.test(text)) return rootMenu();
+
+    const last = await this.turns.findOne({
+      where: { senderPhone: message.senderPhone },
+      order: { createdAt: 'DESC' },
+    });
+    const action = advance(stepFor(last?.replyText ?? null), text, reports);
+
+    if (action.kind === 'none') return null;
+    if (action.kind === 'show') return action.text;
+    if (action.kind === 'document') return action.prompt;
+
+    /*
+     * Queued through the same gate a typed request goes through, not around it. The menu is a
+     * way of choosing, never a second route to a document: the permission layer, the
+     * sender pinning and the audit record are all the ordinary ones.
+     */
+    const outcome = await this.executeCall(
+      {
+        // `menu.` marks the origin in the audit trail, as `sim.` does for simulated turns.
+        id: `menu.${Date.now()}`,
+        name: 'RequestAccountingReport',
+        input: {
+          documentType: action.documentType,
+          ...(action.from ? { from: action.from } : {}),
+          ...(action.to ? { to: action.to } : {}),
+        },
+      },
+      message,
+      this.toolsFor(message.senderRole, false),
+    );
+
+    const name = reports.find(r => r.documentType === action.documentType)?.displayName ?? 'Your report';
+    const period = action.from && action.to ? ` for ${action.from} to ${action.to}` : '';
+    if (outcome.isError || outcome.record.decision === 'denied') {
+      return `${name} could not be prepared. ${outcome.record.reason ?? 'Please try again in a moment.'}`;
+    }
+    return `${name}${period} is on its way — it will arrive here shortly.`;
+  }
+
+  /** The reports the menu offers, in the order the registry lists them. */
+  private async menuReports(): Promise<MenuReport[]> {
+    try {
+      const jobs = this.moduleRef.get<{
+        listChatRequestable: () => Promise<
+          Array<{ documentType: string; displayName: string; optionalParameters: string[] | null }>
+        >;
+      }>('WhatsAppJobsService', { strict: false });
+      const rows = await jobs.listChatRequestable();
+      return rows.map(row => ({
+        documentType: row.documentType,
+        displayName: row.displayName,
+        datedByDefault: (row.optionalParameters ?? []).includes('from'),
+      }));
+    } catch {
+      // No registry here (a deployment without the document module) — the menu simply stays off.
+      return [];
+    }
+  }
+
   private get registry(): ToolRegistryService {
     this.cachedRegistry ??= this.moduleRef.get(ToolRegistryService, { strict: false });
     return this.cachedRegistry;
@@ -547,6 +620,24 @@ export class AgentRuntime {
             'Please type what you need — for example: "send me the customer ledger for C-1005".',
         );
         return await this.finish(record, reply, 'ok', `Unreadable ${message.messageType}`, startedAt);
+      }
+
+      /*
+       * --- 3d. the numbered menu ---
+       *
+       * Clients only, and only once the gate above has confirmed one. Free text still goes to
+       * the reasoning: the menu answers a number, or a greeting, and otherwise returns `none`
+       * and falls through. That order matters — "send me invoice 179" must not be read as
+       * menu option 179 just because a menu happens to be open.
+       *
+       * It exists because free text only works while a language model is answering. The live
+       * log has "trial balance send" delivering a PDF and "Send me trail balance" — one letter
+       * different — getting the help list, because the AI key was missing and the rule-based
+       * fallback matches fixed phrasings only. A number cannot be misspelled.
+       */
+      if (message.senderRole === 'client' && message.text?.trim()) {
+        const menu = await this.menuReply(message);
+        if (menu) return await this.finish(record, plain(menu), 'ok', 'Menu', startedAt);
       }
 
       /* --- 4. rate limiting --- */

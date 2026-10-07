@@ -2,6 +2,7 @@ import { reportRequestTools } from './report-request.tools';
 import type { WhatsAppJobsService } from '../../../modules/whatsapp-jobs/whatsapp-jobs.service';
 import type { DocumentTypeRegistry } from '../../../modules/whatsapp-jobs/entities/document-type-registry.entity';
 import type { ApiKey } from '../../../modules/auth/entities/api-key.entity';
+import type { KnownPartyService } from '../../../modules/whatsapp-jobs/tenancy/known-party.service';
 import type { BotUserService } from '../../../modules/whatsapp-jobs/tenancy/bot-user.service';
 
 /** A number with no company mapping. */
@@ -41,10 +42,15 @@ describe('RequestAccountingReport', () => {
         year: t.aYear,
       }),
     } as unknown as BotUserService;
-    const tools = reportRequestTools({ jobs: () => jobs, users: () => users });
+    // No remembered customers by default: these tests are about codes and the sender fence.
+    const parties = { find: jest.fn().mockResolvedValue({ kind: 'none' }) } as unknown as KnownPartyService;
+    const tools = reportRequestTools({ jobs: () => jobs, users: () => users, parties: () => parties });
+    const byName = (name: string) => tools.find(t => t.name === name)!;
     return {
-      list: tools[0],
-      request: tools[1],
+      list: byName('ListAccountingReports'),
+      request: byName('RequestAccountingReport'),
+      findCustomer: byName('FindCustomerByName'),
+      parties,
       created,
     };
   };

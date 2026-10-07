@@ -5,6 +5,7 @@ import { request } from 'undici';
 import { createLogger } from '../../common/services/logger.service';
 import { WhatsAppDocumentJob } from './entities/whatsapp-document-job.entity';
 import { WhatsAppJobsService } from './whatsapp-jobs.service';
+import { KnownPartyService } from './tenancy/known-party.service';
 import { normalizeWhatsAppNumber } from './providers/whatsapp-delivery.provider';
 import { buildCaption } from './caption';
 
@@ -92,6 +93,7 @@ export class TijarahQueueService implements OnApplicationBootstrap, OnModuleDest
   constructor(
     @InjectRepository(WhatsAppDocumentJob, 'data') private readonly jobs: Repository<WhatsAppDocumentJob>,
     private readonly service: WhatsAppJobsService,
+    private readonly parties: KnownPartyService,
   ) {
     this.config = readTijarahQueueConfig();
   }
@@ -222,6 +224,18 @@ export class TijarahQueueService implements OnApplicationBootstrap, OnModuleDest
           parameters,
           idempotencyKey,
         } as never);
+
+        /*
+         * Keep the customer's name.
+         *
+         * This row is the only place the host says who a phone number belongs to —
+         * `GetBotCustomers` has codes and numbers and no names — so a ledger could only be
+         * asked for by code. Remembering what goes past is what lets a client later say
+         * "Danyal's ledger" and be understood. Never blocks the delivery.
+         */
+        if (row.contactName?.trim()) {
+          await this.parties.remember({ sid: Number(row.sid), grp: String(row.grp) }, row.contactName, recipient);
+        }
 
         await this.jobs.update({ id: job.id }, { sourceSystem: TIJARAH_SOURCE, sourceRef: queueId });
         created += 1;

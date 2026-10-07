@@ -299,4 +299,6 @@ export const EXPORT_TABLE_EXCLUSIONS: Readonly<Record<string, string>> = {
     "Per-deployment integration config: endpoints, auth profile names and SLA targets. A restore must not point one deployment at another's document APIs.",
   bot_users:
     "Which Tijarah Books company each WhatsApp number belongs to. This mapping is what keeps one client's documents away from another; restored into a different deployment it would point real numbers at the wrong company.",
+  known_parties:
+    "Customer names and phone numbers learned from one company's documents, scoped to its sid/grp. Restored elsewhere they would offer one business's customer list to another, and resolve a name to an account code in books it does not belong to.",
 };

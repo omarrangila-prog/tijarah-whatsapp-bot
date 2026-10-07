@@ -6,6 +6,7 @@ import type { WhatsAppJobsService } from '../../../modules/whatsapp-jobs/whatsap
 import { normalizeWhatsAppNumber } from '../../../modules/whatsapp-jobs/providers/whatsapp-delivery.provider';
 import { buildCaption } from '../../../modules/whatsapp-jobs/caption';
 import type { BotUserService } from '../../../modules/whatsapp-jobs/tenancy/bot-user.service';
+import type { KnownPartyService } from '../../../modules/whatsapp-jobs/tenancy/known-party.service';
 
 /**
  * Phase Two: asking for an accounting report in a WhatsApp conversation.
@@ -24,6 +25,7 @@ import type { BotUserService } from '../../../modules/whatsapp-jobs/tenancy/bot-
 export interface ReportRequestToolDeps {
   jobs: () => WhatsAppJobsService;
   users: () => BotUserService;
+  parties: () => KnownPartyService;
 }
 
 export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescriptor[] {
@@ -49,6 +51,55 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
     }),
 
     defineTool({
+      name: 'FindCustomerByName',
+      description:
+        'Find one of this client\u2019s customers by name, to get the account code a ledger needs. ' +
+        'Use it whenever someone names a party instead of giving a code \u2014 "Danyal\u2019s ledger". ' +
+        'Several matches come back as a list to ask the person about; never choose for them.',
+      tier: 'read',
+      requiredRole: ApiKeyRole.OPERATOR,
+      senderScoped: true,
+      inputSchema: z.object({
+        senderPhone: z.string().min(1).describe('Verified sender. Pinned by the runtime; not caller-supplied.'),
+        name: z.string().min(1).max(190).describe('The name as the person said it, e.g. "danyal"'),
+      }),
+      handler: async input => {
+        const tenant = await deps.users().resolve(input.senderPhone);
+        if (!tenant) return { found: 'none' as const, reason: 'This number is not registered to a company.' };
+
+        const match = await deps.parties().find(tenant, input.name);
+        if (match.kind === 'none') {
+          return {
+            found: 'none' as const,
+            // Said plainly, because the next thing the person is asked for is the code.
+            reason:
+              `No customer called "${input.name}" has been seen in your books yet. ` +
+              'A customer appears here once a document has been sent to them.',
+          };
+        }
+        if (match.kind === 'several') {
+          return {
+            found: 'several' as const,
+            customers: match.parties.map(p => ({ name: p.name, partyCode: p.lcode })),
+            note: 'Ask which one is meant. Do not choose.',
+          };
+        }
+        return {
+          found: 'one' as const,
+          name: match.party.name,
+          partyCode: match.party.lcode,
+          ...(match.party.lcode
+            ? {}
+            : {
+                note:
+                  'This customer is known by name but their account code could not be confirmed, ' +
+                  'so a ledger for them needs the code from the person.',
+              }),
+        };
+      },
+    }),
+
+    defineTool({
       name: 'RequestAccountingReport',
       description:
         'Queue an accounting report to be sent back to the person asking, as a PDF. Dates are ' +
@@ -62,14 +113,19 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         documentType: z.string().min(1).max(64).describe('e.g. general_ledger, customer_ledger'),
         from: z.string().max(20).optional().describe('YYYY-MM-DD'),
         to: z.string().max(20).optional().describe('YYYY-MM-DD'),
+        partyName: z
+          .string()
+          .max(190)
+          .optional()
+          .describe('A party named rather than coded, e.g. "danyal". Resolved to a code, or refused.'),
         partyCode: z
           .string()
           .max(40)
           .optional()
           .describe(
             "One party's account code, e.g. C-1005, to get just their ledger. Omit for every " +
-              'account. This must be a CODE — if the person named a party without one, ask them ' +
-              'for the code rather than guessing.',
+              'account. This must be a CODE — if the person named a party instead, resolve it ' +
+              'with FindCustomerByName first, and ask them rather than guessing.',
           ),
       }),
       handler: async input => {
@@ -113,6 +169,32 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          * customer receives another's ledger.
          */
         if (input.partyCode?.trim()) parameters.partyCode = input.partyCode.trim();
+        /*
+         * A name, where the model passed one instead of a code. Resolved here as well as in
+         * FindCustomerByName because the model will sometimes skip the lookup: an unresolvable
+         * name must refuse, never quietly widen the report to every account — "Danyal's
+         * ledger" answered with the whole book is a disclosure, not a near miss.
+         */
+        if (!parameters.partyCode && input.partyName?.trim()) {
+          const match = await deps.parties().find(tenant, input.partyName);
+          if (match.kind === 'one' && match.party.lcode) {
+            parameters.partyCode = match.party.lcode;
+          } else if (match.kind === 'several') {
+            return {
+              queued: false,
+              reason: `More than one customer matches "${input.partyName}".`,
+              customers: match.parties.map(p => ({ name: p.name, partyCode: p.lcode })),
+            };
+          } else {
+            return {
+              queued: false,
+              reason:
+                match.kind === 'one'
+                  ? `"${match.party.name}" is known, but their account code could not be confirmed. Please give the code.`
+                  : `No customer called "${input.partyName}" has been seen in your books. Please give the account code.`,
+            };
+          }
+        }
 
         /*
          * Keyed to the minute, not the day.
