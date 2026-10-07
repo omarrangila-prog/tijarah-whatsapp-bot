@@ -55,6 +55,17 @@ describe('messages real clients sent', () => {
     });
   });
 
+  describe('a named party reaches the ledger that answers for them', () => {
+    it('reads the party out of the message so the tool can resolve it', () => {
+      // The prefix of the resolved code picks customer_ledger or vendor_ledger; what the
+      // intent must carry is the NAME, un-guessed.
+      const intent = detectIntent('Zahid ka ledger bhejo');
+      expect(intent.kind).toBe('report');
+      expect(intent.kind === 'report' && intent.partyName).toBe('Zahid');
+      expect(intent.kind === 'report' && intent.documentType).toBe('general_ledger');
+    });
+  });
+
   describe('still not understood, and that is correct', () => {
     it.each(['Easy paisa', 'Jazzcash'])('%s falls through to help rather than guessing', text => {
       // Payment-method names mean nothing here; answering with a document would be worse.

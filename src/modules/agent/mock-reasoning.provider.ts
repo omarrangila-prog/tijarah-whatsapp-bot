@@ -161,7 +161,15 @@ export class MockReasoningProvider implements ReasoningProvider {
             // Named, not coded: the report tool resolves it or refuses. Never widened to all.
             ...(intent.partyName ? { partyName: intent.partyName } : {}),
           },
-          `Fetching the ${intent.documentType.replace(/_/g, ' ')}.`,
+          /*
+           * No narration: the PDF is the reply.
+           *
+           * It also could not be truthful here — a named party moves the request to the
+           * ledger that answers for them, so "Fetching the general ledger" was announced for
+           * what turned out to be the vendor ledger. One message per document, and it is
+           * the document.
+           */
+          '',
         );
 
       case 'create_start':
@@ -640,7 +648,8 @@ function summariseToolResult(raw: string, isError: boolean): string {
         // Said as "preparing", not "arriving": the fetch and the send can both still fail, and
         // the PDF landing in the chat is the only honest confirmation. A failure now reports
         // itself, so silence after this line no longer means a document that never came.
-        return `Preparing your ${str(row.report) ?? 'report'} now…`;
+        // Nothing: the PDF follows with its own caption, and the worker reports a failure.
+        return '';
       }
       return str(row.reason) ?? str(row.message) ?? 'That could not be queued.';
     }

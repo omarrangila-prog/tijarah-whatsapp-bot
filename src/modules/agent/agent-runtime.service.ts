@@ -360,11 +360,18 @@ export class AgentRuntime {
     );
 
     const name = reports.find(r => r.documentType === action.documentType)?.displayName ?? 'Your report';
-    const period = action.from && action.to ? ` for ${action.from} to ${action.to}` : '';
     if (outcome.isError || outcome.record.decision === 'denied') {
       return `${name} could not be prepared. ${outcome.record.reason ?? 'Please try again in a moment.'}`;
     }
-    return `Preparing your ${name}${period} now…`;
+    /*
+     * Nothing on success: the PDF is the answer.
+     *
+     * The document arrives with a caption naming the report and its period, so a message
+     * before it only adds a notification for something that has not happened yet — and if
+     * the fetch fails, the worker says so itself. One message per document, and it is the
+     * document. An empty string is the runtime's "send nothing".
+     */
+    return '';
   }
 
   /**
@@ -645,8 +652,18 @@ export class AgentRuntime {
        * fallback matches fixed phrasings only. A number cannot be misspelled.
        */
       if (message.senderRole === 'client' && message.text?.trim()) {
+        /*
+         * `null` means the menu did not handle this — fall through to the reasoning. An empty
+         * string means it DID handle it and has nothing to say, which is the queued-document
+         * case: the PDF is the reply. The two must stay distinct, or a silent success would
+         * be re-answered by the model as if nothing had happened.
+         */
         const menu = await this.menuReply(message);
-        if (menu) return await this.finish(record, plain(menu), 'ok', 'Menu', startedAt);
+        if (menu !== null) {
+          return menu === ''
+            ? await this.finish(record, silent('Document queued; the document is the reply.'), 'ok', 'Menu', startedAt)
+            : await this.finish(record, plain(menu), 'ok', 'Menu', startedAt);
+        }
       }
 
       /* --- 4. rate limiting --- */
@@ -757,12 +774,23 @@ export class AgentRuntime {
     record.inputTokens = inputTokens;
     record.outputTokens = outputTokens;
 
+    /*
+     * A queued document is answered by the document, not by a sentence.
+     *
+     * The tools that queue one deliberately return no text, and "Done." was the generic
+     * stand-in filling that silence — so a person asking for a ledger got "Done." and then,
+     * moments later, the PDF. One message per document, and it is the document. Anything
+     * else with nothing to say still falls back, because silence there would look broken.
+     */
+    const queuedADocument = actions.some(a => a.tool === 'RequestAccountingReport' && a.decision === 'allowed');
+    const text = finalText || (queuedADocument ? '' : 'Done.');
+
     return {
-      text: finalText || 'Done.',
+      text,
       attachments: [],
       actions,
       pendingApprovalId,
-      shouldReply: true,
+      shouldReply: text !== '',
     };
   }
 

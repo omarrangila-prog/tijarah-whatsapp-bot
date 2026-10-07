@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KnownParty } from './known-party.entity';
 import { matchParty, type PartyCandidate, type PartyMatch } from './party-match';
+import { actHeadForLedger } from './account-kind';
 import { normalizeWhatsAppNumber } from '../providers/whatsapp-delivery.provider';
 // A VALUE import, not `import type`: Nest reads the constructor's emitted design:paramtypes to
 // know what to inject, and a type-only import is erased, leaving `undefined` and a boot-time
@@ -89,11 +90,18 @@ export class KnownPartyService {
    * accounts, which the host's data does have — is left unresolved, because choosing would
    * mean sending one customer's ledger under another's name.
    */
-  async find(tenant: TenantContext, query: string): Promise<PartyMatch> {
+  async find(tenant: TenantContext, query: string, documentType = 'general_ledger'): Promise<PartyMatch> {
     const match = matchParty(query, await this.list(tenant));
     if (match.kind !== 'one' || match.party.lcode) return match;
 
-    const accounts = await this.users.findByPhone(tenant, match.party.phone);
+    /*
+     * The host is asked with the head that matches the ledger wanted.
+     *
+     * Only RECEIVABLE and BANK/CASH narrow anything — everything else returns the whole
+     * chart — but a narrower list is fewer rows to match a phone against and so fewer ways
+     * to come back ambiguous. The code's own prefix is what finally decides the kind.
+     */
+    const accounts = await this.users.findByPhone(tenant, match.party.phone, actHeadForLedger(documentType));
     if (accounts.length !== 1) return match;
 
     const lcode = accounts[0].lcode;

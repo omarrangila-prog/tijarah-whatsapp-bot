@@ -23,7 +23,11 @@ describe('RequestAccountingReport', () => {
     const created: Record<string, unknown>[] = [];
     const jobs = {
       listChatRequestable: () =>
-        Promise.resolve([report('general_ledger', 'General Ledger'), report('customer_ledger', 'Customer Ledger')]),
+        Promise.resolve([
+          report('general_ledger', 'General Ledger'),
+          report('customer_ledger', 'Customer Ledger'),
+          report('vendor_ledger', 'Vendor Ledger'),
+        ]),
       create: (input: Record<string, unknown>) => {
         created.push(input);
         return Promise.resolve({ reference: 'JOB-2001', status: 'PENDING' });
@@ -86,7 +90,7 @@ describe('RequestAccountingReport', () => {
     // An invoice belongs to a named customer; reachable from chat it becomes a way to read
     // someone else's document.
     expect(result.queued).toBe(false);
-    expect(result.available).toEqual(['general_ledger', 'customer_ledger']);
+    expect(result.available).toEqual(['general_ledger', 'customer_ledger', 'vendor_ledger']);
     expect(created).toHaveLength(0);
   });
 
@@ -116,7 +120,7 @@ describe('RequestAccountingReport', () => {
     const result = (await list.handler(list.inputSchema.parse({}) as never, {} as ApiKey)) as {
       reports: { documentType: string }[];
     };
-    expect(result.reports.map(r => r.documentType)).toEqual(['general_ledger', 'customer_ledger']);
+    expect(result.reports.map(r => r.documentType)).toEqual(['general_ledger', 'customer_ledger', 'vendor_ledger']);
   });
 
   it("uses the asker's own company, not a default", async () => {
@@ -166,6 +170,37 @@ describe('RequestAccountingReport', () => {
     });
 
     expect(created[0].parameters).toMatchObject({ from: '2026-02-01', to: '2026-02-28' });
+  });
+
+  it('sends a named party to the ledger that answers for them', async () => {
+    const { request, created, parties } = build();
+    // 0105… is a vendor in the host's chart; 0107… is a customer.
+    (parties.find as jest.Mock).mockResolvedValue({
+      kind: 'one',
+      party: { name: 'ZAHID TRADERS', phone: '923001112222', lcode: '0105001' },
+    });
+
+    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'zahid' });
+
+    /*
+     * Asking for a vendor by name and being handed the CUSTOMER ledger is a report about the
+     * wrong side of the books, so the code's prefix picks the ledger.
+     */
+    expect(created[0].documentType).toBe('vendor_ledger');
+    expect(created[0].parameters).toMatchObject({ partyCode: '0105001' });
+  });
+
+  it('does not overrule a ledger the person named themselves', async () => {
+    const { request, created, parties } = build();
+    (parties.find as jest.Mock).mockResolvedValue({
+      kind: 'one',
+      party: { name: 'ZAHID TRADERS', phone: '923001112222', lcode: '0105001' },
+    });
+
+    // They said "customer ledger" explicitly; that is a decision, not a loose "ledger".
+    await run(request, { senderPhone: '923001234567', documentType: 'customer_ledger', partyName: 'zahid' });
+
+    expect(created[0].documentType).toBe('customer_ledger');
   });
 
   it('refuses a number that is not registered to a company', async () => {

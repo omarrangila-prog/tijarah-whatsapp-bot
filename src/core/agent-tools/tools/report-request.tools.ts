@@ -5,6 +5,7 @@ import type { AnyToolDescriptor } from '../tool-descriptor';
 import type { WhatsAppJobsService } from '../../../modules/whatsapp-jobs/whatsapp-jobs.service';
 import { normalizeWhatsAppNumber } from '../../../modules/whatsapp-jobs/providers/whatsapp-delivery.provider';
 import { buildCaption } from '../../../modules/whatsapp-jobs/caption';
+import { accountKind, ledgerForKind } from '../../../modules/whatsapp-jobs/tenancy/account-kind';
 import type { BotUserService } from '../../../modules/whatsapp-jobs/tenancy/bot-user.service';
 import type { KnownPartyService } from '../../../modules/whatsapp-jobs/tenancy/known-party.service';
 
@@ -175,10 +176,33 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          * name must refuse, never quietly widen the report to every account — "Danyal's
          * ledger" answered with the whole book is a disclosure, not a near miss.
          */
+        /*
+         * `parameters` is Record<string, unknown>, so anything read back out of it is narrowed
+         * before it reaches a template: a non-string would stringify to [object Object], which
+         * would key every job alike and print nonsense in a caption.
+         */
+        const asText = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
+        const keyPart = (value: unknown): string => asText(value) ?? 'all';
+
+        let resolvedType = type;
         if (!parameters.partyCode && input.partyName?.trim()) {
-          const match = await deps.parties().find(tenant, input.partyName);
+          const match = await deps.parties().find(tenant, input.partyName, input.documentType);
           if (match.kind === 'one' && match.party.lcode) {
             parameters.partyCode = match.party.lcode;
+            /*
+             * Send the name to the ledger that actually answers for it.
+             *
+             * "Danyal's ledger" with Danyal a vendor must reach the VENDOR ledger, not the
+             * customer one: the code's prefix says which, and the wrong ledger is a report
+             * about the wrong side of the books. Only when the person said "ledger" loosely —
+             * the general ledger — is the type allowed to change; naming a specific ledger is
+             * a decision the bot does not overrule.
+             */
+            if (input.documentType === 'general_ledger') {
+              const better = ledgerForKind(accountKind(match.party.lcode));
+              const swapped = better !== type.documentType ? allowed.find(t => t.documentType === better) : undefined;
+              if (swapped) resolvedType = swapped;
+            }
           } else if (match.kind === 'several') {
             return {
               queued: false,
@@ -215,29 +239,28 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          * the person simply never received it. The company is part of the key for the same
          * reason: two clients asking for the same report must not collide.
          */
-        // Narrowed rather than interpolated raw: `parameters` is Record<string, unknown>, and a
-        // non-string slipping in would stringify to [object Object] and key every job alike.
-        const keyPart = (value: unknown): string => (typeof value === 'string' && value ? value : 'all');
         const idempotencyKey =
-          `chat-${tenant.sid}-${tenant.grp}-${input.documentType}-${recipient}-` +
+          `chat-${tenant.sid}-${tenant.grp}-${resolvedType.documentType}-${recipient}-` +
           `${keyPart(parameters.partyCode)}-${keyPart(parameters.from)}-${keyPart(parameters.to)}-${minute}`;
 
         try {
           const job = await deps.jobs().create({
             source: 'agent',
-            documentType: type.documentType,
-            documentReference: type.displayName,
+            documentType: resolvedType.documentType,
+            documentReference: resolvedType.displayName,
             recipientName: 'Requested in chat',
             recipientWhatsAppNumber: recipient,
             // The report's own name and period. Nothing about the system that sent it.
             messageText: buildCaption(
-              type.documentType,
+              resolvedType.documentType,
               {
-                displayName: input.partyCode ? `${type.displayName} — ${input.partyCode}` : type.displayName,
+                displayName: asText(parameters.partyCode)
+                  ? `${resolvedType.displayName} — ${asText(parameters.partyCode) ?? ''}`
+                  : resolvedType.displayName,
                 from: input.from ?? null,
                 to: input.to ?? null,
               },
-              type.captionTemplate,
+              resolvedType.captionTemplate,
             ),
             parameters,
             idempotencyKey,
@@ -255,8 +278,12 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           return {
             queued: true,
             jobId: job.reference,
-            report: input.partyCode ? `${type.displayName} for ${input.partyCode}` : type.displayName,
-            note: 'Preparing it now.',
+            report: asText(parameters.partyCode)
+              ? `${resolvedType.displayName} for ${asText(parameters.partyCode) ?? ''}`
+              : resolvedType.displayName,
+            // Said to the MODEL, not the person: the document is the reply, so there is
+            // nothing to announce ahead of it.
+            note: 'Queued. Do not announce it — the document itself is the reply.',
           };
         } catch (error) {
           const detail = (error as { response?: { message?: string; jobId?: string } }).response;
