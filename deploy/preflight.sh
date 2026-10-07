@@ -116,6 +116,32 @@ else
   warn "DRAFT_SUBMIT_ENDPOINT unset — documents composed in chat are recorded locally, not submitted"
 fi
 
+# The OpenAI-compatible reasoner, which answers ahead of Gemini when configured.
+#
+# Checked for all three settings together, because the provider stays silently dormant unless
+# every one is set: a deployment with only AI_API_KEY filled in looked configured, answered
+# every client from the rule-based fallback, and the only tell was that a typo stopped working.
+if [ -n "${AI_BASE_URL:-}${AI_API_KEY:-}${AI_MODEL:-}" ]; then
+  if [ -z "${AI_BASE_URL:-}" ] || [ -z "${AI_API_KEY:-}" ] || [ -z "${AI_MODEL:-}" ]; then
+    bad "AI_BASE_URL, AI_API_KEY and AI_MODEL must ALL be set — with any missing, the bot silently uses fixed phrasings only"
+  else
+    AIC=$(curl -s -m 45 -o /tmp/preflight.ai -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer ${AI_API_KEY}" -H 'Content-Type: application/json' \
+      -d "{\"model\":\"${AI_MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":8}" \
+      "${AI_BASE_URL%/}/chat/completions" 2>/dev/null || echo 000)
+    case "$AIC" in
+      200) ok "reasoning host answers on model '${AI_MODEL}'" ;;
+      401|403) bad "the reasoning host rejected AI_API_KEY (HTTP $AIC)" ;;
+      404) bad "model '${AI_MODEL}' is not served by ${AI_BASE_URL} — GET ${AI_BASE_URL%/}/models lists what is" ;;
+      429) bad "the reasoning host has no credit left — replies would fall back to fixed phrasings" ;;
+      *)   warn "reasoning host returned HTTP $AIC" ;;
+    esac
+    rm -f /tmp/preflight.ai
+  fi
+elif [ -z "${GEMINI_API_KEY:-}" ]; then
+  warn "no reasoner configured — clients get the numbered menu and fixed phrasings only"
+fi
+
 if [ -n "${GEMINI_API_KEY:-}" ]; then
   G=$(curl -s -m 30 -o /tmp/preflight.g -w '%{http_code}' -X POST \
     -H "x-goog-api-key: ${GEMINI_API_KEY}" -H 'Content-Type: application/json' \

@@ -69,7 +69,7 @@ clients use it.
 | `TIJARAH_QUEUE_ENABLED`                 | `true`                                         | picks up documents Tijarah Books queues — whatever is queued **will** be delivered         |
 | `APPROVAL_POLL_ENABLED`                 | `true`                                         | when a composed document is approved in Tijarah, sends the finished PDF back to the client |
 | `BOT_REQUIRE_REGISTRATION`              | `true`                                         | only registered clients are served                                                         |
-| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | your AI provider (e.g. Kimi, DeepSeek, OpenAI) | **required** for ordinary sentences — without it, fixed phrases only                       |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | your AI provider (e.g. Kimi, DeepSeek, OpenAI) | **set all three or none** — a key alone leaves it off, and clients get the menu only       |
 | `GEMINI_API_KEY`                        | optional backup AI key                         | used if the provider above is not set or fails                                             |
 | `BOT_REGISTRATION_CONTACT`              | the person who adds new clients                | shown to clients when something needs a human                                              |
 
@@ -180,12 +180,31 @@ Tijarah has no such document. Check the number in Tijarah and send again.
 
 ### C. What clients can ask for in chat
 
-Clients just message the business number in ordinary words. Examples:
+There are two ways, and both work.
+
+**The menu.** A client sends **menu** (or hi, hello, salam) and gets numbered options:
+
+```
+What would you like from Tijarah Books?
+
+1. Receivables — who owes me
+2. A report (trial balance, balance sheet…)
+3. An invoice or voucher by number
+```
+
+They reply with a number, pick a report from the list, then pick a period — this month, last
+month, this year, everything, or specific dates. The PDF arrives. **This works even if no AI is
+configured**, so it is the route that never fails.
+
+**Or just ask**, in ordinary words:
 
 - _"Send me the trial balance"_
-- _"Customer ledger for C-1005"_
+- _"Danyal's ledger"_ — by name, no account code needed
 - _"Sales book from 1 July to 30 September"_
 - _"Stock summary for this year"_
+
+Roman Urdu works too (_"danyal ka ledger bhejo"_). Free typing needs the AI settings filled in;
+the menu does not.
 
 The PDF comes back in the same chat. Reports available:
 
@@ -195,8 +214,9 @@ The PDF comes back in the same chat. Reports available:
 
 Tell your clients:
 
-- **For one customer's or vendor's ledger, give the account code** (e.g. `C-1005`), not the name.
-  The bot cannot find a party by name yet, and will ask for the code.
+- **A customer can be named** — _"Danyal's ledger"_ — once a document has been sent to them
+  before, which is how the bot learns the name. Otherwise it asks for the account code
+  (e.g. `C-1005`). If two customers match the name, it asks which one rather than guessing.
 - **No dates means the full period.** Say the dates for a shorter one.
 - **They only ever get their own company's books,** and only to the number that asked.
 
