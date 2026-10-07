@@ -637,7 +637,10 @@ function summariseToolResult(raw: string, isError: boolean): string {
     const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
     if ('queued' in row) {
       if (row.queued === true) {
-        return `${str(row.report) ?? 'Your report'} is on its way — it will arrive here shortly.`;
+        // Said as "preparing", not "arriving": the fetch and the send can both still fail, and
+        // the PDF landing in the chat is the only honest confirmation. A failure now reports
+        // itself, so silence after this line no longer means a document that never came.
+        return `Preparing your ${str(row.report) ?? 'report'} now…`;
       }
       return str(row.reason) ?? str(row.message) ?? 'That could not be queued.';
     }

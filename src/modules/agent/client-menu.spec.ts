@@ -2,7 +2,9 @@ import {
   advance,
   datesPrompt,
   periodFor,
+  PERIOD_OPTIONS,
   periodMenu,
+  MENU_TRIGGER,
   readChoice,
   readDates,
   reportMenu,
@@ -50,19 +52,18 @@ describe('readDates', () => {
 });
 
 describe('periodFor', () => {
-  it('resolves the named periods against the clock', () => {
-    expect(periodFor(1, NOW)).toEqual({ from: '2026-10-01', to: '2026-10-07' });
-    expect(periodFor(2, NOW)).toEqual({ from: '2026-09-01', to: '2026-09-30' });
-    expect(periodFor(3, NOW)).toEqual({ from: '2026-01-01', to: '2026-10-07' });
-    expect(periodFor(4, NOW)).toEqual({ from: null, to: null });
+  it('resolves each duration in the menu against the clock', () => {
+    expect(periodFor(1, NOW)).toEqual({ from: '2026-09-30', to: '2026-10-07' }); // last 7 days
+    expect(periodFor(2, NOW)).toEqual({ from: '2026-09-27', to: '2026-10-07' }); // last 10
+    expect(periodFor(3, NOW)).toEqual({ from: '2026-09-22', to: '2026-10-07' }); // last 15
+    expect(periodFor(4, NOW)).toEqual({ from: '2026-09-07', to: '2026-10-07' }); // last 30
+    expect(periodFor(5, NOW)).toEqual({ from: '2026-10-01', to: '2026-10-07' }); // this month
+    expect(periodFor(6, NOW)).toEqual({ from: '2026-01-01', to: '2026-10-07' }); // this year
+    expect(periodFor(7, NOW)).toEqual({ from: '2026-01-01', to: '2026-10-07' }); // up to today
   });
 
-  it('rolls back across a year end', () => {
-    expect(periodFor(2, new Date('2026-01-15T00:00:00Z'))).toEqual({ from: '2025-12-01', to: '2025-12-31' });
-  });
-
-  it('has no option beyond the four named ones', () => {
-    expect(periodFor(5, NOW)).toBeNull();
+  it('has no period for the custom option, which is a prompt instead', () => {
+    expect(periodFor(PERIOD_OPTIONS.length, NOW)).toBeNull();
     expect(periodFor(0, NOW)).toBeNull();
   });
 });
@@ -111,17 +112,18 @@ describe('advance', () => {
     expect(asked.kind === 'show' && asked.text).toContain('Customer Ledger');
 
     const period = stepFor(asked.kind === 'show' ? asked.text : '');
-    expect(advance(period, '2', REPORTS, NOW)).toEqual({
+    // Option 4 is "Last 30 days".
+    expect(advance(period, '4', REPORTS, NOW)).toEqual({
       kind: 'report',
       documentType: 'customer_ledger',
-      from: '2026-09-01',
-      to: '2026-09-30',
+      from: '2026-09-07',
+      to: '2026-10-07',
     });
   });
 
   it('takes specific dates, asked for and then given', () => {
     const period = stepFor(periodMenu('Trial Balance'));
-    const asked = advance(period, '5', REPORTS, NOW);
+    const asked = advance(period, String(PERIOD_OPTIONS.length), REPORTS, NOW);
     expect(asked.kind === 'show' && asked.text).toContain('2026-07-01 to 2026-09-30');
 
     const dates = stepFor(asked.kind === 'show' ? asked.text : '');
@@ -182,6 +184,34 @@ describe('advance', () => {
       const action = advance(stepFor(periodMenu('Trial Balance')), word, REPORTS, NOW);
       expect(action.kind === 'show' && action.text).toContain('What would you like');
     }
+  });
+
+  it('"send" opens the menu, as the specification asks', () => {
+    expect(MENU_TRIGGER.test('send')).toBe(true);
+    expect(MENU_TRIGGER.test('bhejo')).toBe(true);
+    expect(MENU_TRIGGER.test('menu')).toBe(true);
+  });
+
+  it('offers the eight durations the specification lists', () => {
+    const text = periodMenu('General Ledger');
+    for (const label of PERIOD_OPTIONS) expect(text).toContain(label);
+  });
+
+  it('takes a period typed in words at the duration step', () => {
+    // The menu prints two forms; the parser understands many, and a person who types one of
+    // the others has still answered the question.
+    const period = stepFor(periodMenu('Trial Balance'));
+    expect(advance(period, 'last 20 days', REPORTS, NOW)).toEqual({
+      kind: 'report',
+      documentType: 'trial_balance',
+      from: '2026-09-17',
+      to: '2026-10-07',
+    });
+  });
+
+  it('goes back one step from the duration question', () => {
+    const action = advance(stepFor(periodMenu('Trial Balance')), '0', REPORTS, NOW);
+    expect(action.kind === 'show' && action.text).toContain('Which report?');
   });
 
   it('asks which document when the person chooses an invoice by number', () => {

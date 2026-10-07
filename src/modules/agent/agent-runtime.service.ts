@@ -364,7 +364,7 @@ export class AgentRuntime {
     if (outcome.isError || outcome.record.decision === 'denied') {
       return `${name} could not be prepared. ${outcome.record.reason ?? 'Please try again in a moment.'}`;
     }
-    return `${name}${period} is on its way — it will arrive here shortly.`;
+    return `Preparing your ${name}${period} now…`;
   }
 
   /**

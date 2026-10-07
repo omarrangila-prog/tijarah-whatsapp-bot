@@ -496,5 +496,42 @@ export class JobWorkerService implements OnApplicationBootstrap, OnModuleDestroy
 
     recordJobFailed(code, retry);
     this.logger[retry ? 'warn' : 'error'](`${job.reference} ${status}: ${code} — ${message.slice(0, 200)}`);
+
+    if (!retry) await this.tellRequester(job, code);
+  }
+
+  /**
+   * Tell someone who asked for a document in chat that it is not coming.
+   *
+   * A failed job used to be visible only to an operator on the jobs screen: the person was
+   * told their report was on its way and then simply never heard again, which is the worst of
+   * the three possible outcomes — worse than a refusal, because they keep waiting. Only for
+   * jobs a person asked for (`source: 'agent'`); a document Tijarah queued was not requested
+   * in a conversation and has no one in that chat waiting on it.
+   *
+   * Never throws: a failure to report a failure must not take the worker down.
+   */
+  private async tellRequester(job: WhatsAppDocumentJob, code: string): Promise<void> {
+    if (job.source !== 'agent') return;
+    const sessionId = this.config.sessionId;
+    if (!sessionId || !job.recipientWhatsAppNumber) return;
+
+    // What a person can act on, not the error code: "DOCUMENT_NOT_FOUND" means nothing to them.
+    const reason =
+      code === 'DOCUMENT_NOT_FOUND' || code === 'PERMANENTLY_REJECTED'
+        ? 'Tijarah Books has no document for that request — please check the details and try again.'
+        : code === 'INVALID_RECIPIENT_NUMBER'
+          ? 'this number could not be reached on WhatsApp.'
+          : 'the accounting system did not answer. Please try again in a few minutes.';
+
+    try {
+      await this.whatsapp.sendText(
+        sessionId,
+        job.recipientWhatsAppNumber,
+        `Sorry — I could not send your ${job.documentReference ?? 'document'}: ${reason}`,
+      );
+    } catch (error) {
+      this.logger.warn(`${job.reference}: could not tell the requester it failed — ${(error as Error).message}`);
+    }
   }
 }

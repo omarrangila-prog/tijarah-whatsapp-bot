@@ -13,6 +13,8 @@
  * every branch is directly testable.
  */
 
+import { parsePeriod } from './period-parse';
+
 /** A report a client can ask for, as the registry describes it. */
 export interface MenuReport {
   documentType: string;
@@ -35,7 +37,7 @@ export type MenuStep =
   | { kind: 'period'; documentType: string }
   | { kind: 'dates'; documentType: string };
 
-export const MENU_TRIGGER = /^\s*(menu|start|hi|hello|help|salam|assalam|aoa|option|options|list)\b/i;
+export const MENU_TRIGGER = /^\s*(send|bhejo?|menu|start|hi|hello|help|salam|assalam|aoa|option|options|list)\b/i;
 
 /** Marks a message as one of this menu's, so the next reply can be read in context. */
 const TAGS: Record<string, string> = {
@@ -100,11 +102,28 @@ export function reportMenu(reports: MenuReport[]): string {
 }
 
 /** Asked after a dated report is chosen, so a period is never silently "everything". */
+/**
+ * The durations the specification asks for, in its order.
+ *
+ * Seven named spans and a custom range. Option 1 is the host's own default, so choosing it
+ * and saying nothing give the same report — which is what makes "just send it" safe.
+ */
+export const PERIOD_OPTIONS = [
+  'Last 7 days',
+  'Last 10 days',
+  'Last 15 days',
+  'Last 30 days',
+  'This month',
+  'This year',
+  'Up to today',
+  'Custom dates',
+] as const;
+
 export function periodMenu(displayName: string): string {
+  const lines = PERIOD_OPTIONS.map((label, i) => `${i + 1}.  ${label}`);
   return (
-    `*${displayName}* — for which period?\n\n` +
-    `1.  This month\n2.  Last month\n3.  This year\n4.  Everything\n5.  Specific dates\n\n` +
-    `_Reply with a number, or type a period like "July to September"._${TAGS.period}`
+    `*${displayName}* — for which period?\n\n${lines.join('\n')}\n\n` +
+    `_Reply with a number, or type a period like "July to September". 0 = back._${TAGS.period}`
   );
 }
 
@@ -173,22 +192,27 @@ export function readDates(text: string): { from: string; to: string } | null {
 /** The named periods behind options 1–4, resolved against a clock that can be injected. */
 export function periodFor(choice: number, now: Date): { from: string | null; to: string | null } | null {
   const iso = (d: Date): string => d.toISOString().slice(0, 10);
+  const back = (days: number): string => iso(new Date(now.getTime() - days * 86_400_000));
   const year = now.getUTCFullYear();
   const month = now.getUTCMonth();
   switch (choice) {
     case 1:
-      return { from: iso(new Date(Date.UTC(year, month, 1))), to: iso(now) };
+      // The host's own default. Named anyway, so choosing it is a decision rather than a guess.
+      return { from: back(7), to: iso(now) };
     case 2:
-      return {
-        from: iso(new Date(Date.UTC(year, month - 1, 1))),
-        // Day 0 of this month is the last day of the previous one.
-        to: iso(new Date(Date.UTC(year, month, 0))),
-      };
+      return { from: back(10), to: iso(now) };
     case 3:
-      return { from: iso(new Date(Date.UTC(year, 0, 1))), to: iso(now) };
+      return { from: back(15), to: iso(now) };
     case 4:
-      return { from: null, to: null };
+      return { from: back(30), to: iso(now) };
+    case 5:
+      return { from: iso(new Date(Date.UTC(year, month, 1))), to: iso(now) };
+    case 6:
+      return { from: iso(new Date(Date.UTC(year, 0, 1))), to: iso(now) };
+    case 7:
+      return { from: iso(new Date(Date.UTC(year, 0, 1))), to: iso(now) };
     default:
+      // 8 is the custom range, which is a prompt rather than a period.
       return null;
   }
 }
@@ -244,12 +268,18 @@ export function advance(
   if (step.kind === 'period') {
     const report = reports.find(r => r.displayName === step.documentType);
     if (!report) return { kind: 'show', text: reportMenu(reports) };
-    if (choice === 5) return { kind: 'show', text: datesPrompt(report.displayName) };
+    if (choice === 0) return { kind: 'show', text: reportMenu(reports) };
+    // 8 is the custom range in PERIOD_OPTIONS: a prompt for two dates, not a period itself.
+    if (choice === PERIOD_OPTIONS.length) return { kind: 'show', text: datesPrompt(report.displayName) };
     const period = choice === null ? null : periodFor(choice, now);
     if (!period) {
-      // A date range typed instead of choosing is an answer, not a mistake.
-      const typed = readDates(reply);
-      if (typed) return { kind: 'report', documentType: report.documentType, ...typed };
+      /*
+       * A period typed instead of chosen is an answer, not a mistake — and it is read with the
+       * same parser the free-text path uses, so "last 20 days" and "1 Jan se 31 March tak"
+       * work here too rather than only the two forms this menu happens to print.
+       */
+      const typed = readDates(reply) ?? parsePeriod(reply, now);
+      if (typed) return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to };
       return { kind: 'show', text: periodMenu(report.displayName) };
     }
     return { kind: 'report', documentType: report.documentType, from: period.from, to: period.to };

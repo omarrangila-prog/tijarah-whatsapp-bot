@@ -242,11 +242,21 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
             parameters,
             idempotencyKey,
           });
+          /*
+           * Queued, and said as queued — not as delivered.
+           *
+           * At this point the document has not been fetched from the host and nothing has
+           * been transmitted; both still fail. "It will arrive here shortly" was a promise
+           * made before anything was certain, and when the fetch failed nobody told the
+           * person, so they waited for something that was never coming. The PDF itself is
+           * the confirmation, so the only honest thing to say here is that the request was
+           * accepted.
+           */
           return {
             queued: true,
             jobId: job.reference,
             report: input.partyCode ? `${type.displayName} for ${input.partyCode}` : type.displayName,
-            note: 'It will arrive here shortly.',
+            note: 'Preparing it now.',
           };
         } catch (error) {
           const detail = (error as { response?: { message?: string; jobId?: string } }).response;
