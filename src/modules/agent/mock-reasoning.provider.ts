@@ -158,6 +158,8 @@ export class MockReasoningProvider implements ReasoningProvider {
             documentType: intent.documentType,
             ...(intent.from ? { from: intent.from, to: intent.to } : {}),
             ...(intent.partyCode ? { partyCode: intent.partyCode } : {}),
+            // Named, not coded: the report tool resolves it or refuses. Never widened to all.
+            ...(intent.partyName ? { partyName: intent.partyName } : {}),
           },
           `Fetching the ${intent.documentType.replace(/_/g, ' ')}.`,
         );
@@ -210,6 +212,11 @@ export class MockReasoningProvider implements ReasoningProvider {
             reference: intent.reference,
           },
           'Preparing that payment for approval.',
+        );
+
+      case 'need_document_number':
+        return this.finish(
+          `Which ${intent.displayName}? Send its number as Tijarah shows it — for example *${intent.displayName === 'invoice' ? 'invoice' : intent.displayName.toLowerCase()} 179*.`,
         );
 
       case 'pending':
@@ -283,12 +290,22 @@ type Intent =
   | { kind: 'pending' }
   | { kind: 'find_contact'; query: string }
   | { kind: 'send'; recipient: string | null; body: string | null }
-  | { kind: 'report'; documentType: string; from: string | null; to: string | null; partyCode: string | null }
+  | {
+      kind: 'report';
+      documentType: string;
+      from: string | null;
+      to: string | null;
+      partyCode: string | null;
+      /** A party named rather than coded. Resolved to a code downstream, or refused. */
+      partyName: string | null;
+    }
   | { kind: 'list_reports' }
   | { kind: 'create_start'; documentType: string }
   | { kind: 'create_review' }
   | { kind: 'create_submit' }
   | { kind: 'create_cancel' }
+  /** A document named without its number: ask for the number rather than offering the menu. */
+  | { kind: 'need_document_number'; displayName: string }
   | { kind: 'help' };
 
 /**
@@ -321,6 +338,52 @@ const CREATE_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
  * with the general ledger — the sort of near-miss that is worse than not understanding at all,
  * because the person receives a real document and assumes it is the one they asked for.
  */
+/**
+ * A party named in a ledger request, e.g. "Anas Boltan ka ledger bhejo" → "Anas Boltan".
+ *
+ * This exists because of a real delivery: that message matched the bare `ledger` rule, carried
+ * no party, and the client was sent the WHOLE general ledger — a real PDF, silently the wrong
+ * one, with nothing in the reply to say so. Sending every account to someone who asked for one
+ * is a disclosure, so a name found here is resolved to a code downstream or refused.
+ *
+ * Both word orders, because clients write in English and Roman Urdu in the same conversation:
+ * "ledger of Anas" and "Anas ka ledger". Words that are part of the request rather than a name
+ * are excluded, so "send me the ledger" is not read as a customer called "send me the".
+ */
+const LEDGER_NOISE =
+  /^(send|me|my|the|a|an|please|plz|bhej|bhejo|do|de|dedo|chahiye|mujhe|ka|ki|ke|k|is|this|that|for|of|full|all|total|complete|new|old|last|latest|report|statement|account|accounts|pls|kindly|need|want|get|give|show)$/i;
+
+function partyNameIn(body: string): string | null {
+  const patterns = [
+    // "ledger of Anas Boltan" / "ledger for Anas"
+    /\b(?:ledger|statement|khata)\s+(?:of|for|ka|ki|ke)\s+([A-Za-z][A-Za-z .'&-]{1,60})/i,
+    // "Anas Boltan ka ledger" — Roman Urdu word order
+    /([A-Za-z][A-Za-z .'&-]{1,60}?)\s+(?:ka|ki|ke)\s+(?:ledger|statement|khata)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(body);
+    if (!match) continue;
+    const words = match[1]
+      .trim()
+      .split(/\s+/)
+      .filter(word => !LEDGER_NOISE.test(word));
+    if (words.length) return words.join(' ');
+  }
+  return null;
+}
+
+/** Documents a person asks for by number, for the "which number?" reply when they omit it. */
+const DOCUMENT_BY_NUMBER: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bdigital\s+invoice\b/, 'Digital Invoice'],
+  [/\bsales?\s+return\b/, 'Sale Return'],
+  [/\bpurchase\s+return\b/, 'Purchase Return'],
+  [/\bsales?\s+invoice\b|\bsale\s+bill\b/, 'Sale Invoice'],
+  [/\bpurchase\s+invoice\b|\bpurchase\s+bill\b/, 'Purchase Invoice'],
+  [/\bpayment\s+voucher\b/, 'Payment Voucher'],
+  [/\breceive\s+voucher\b|\breceipt\s+voucher\b/, 'Receive Voucher'],
+  [/\binvoice\b|\bbill\b/, 'invoice'],
+];
+
 const REPORT_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bcustomer\s+ledger\b/, 'customer_ledger'],
   [/\bvendor\s+ledger\b|\bsupplier\s+ledger\b/, 'vendor_ledger'],
@@ -409,6 +472,7 @@ export function detectIntent(text: string): Intent {
         from: dates[0] ?? null,
         to: dates[1] ?? null,
         partyCode: party ? party[1].toUpperCase() : null,
+        partyName: party ? null : partyNameIn(body),
       };
     }
   }
@@ -429,6 +493,19 @@ export function detectIntent(text: string): Intent {
 
   const find = body.match(/^\s*(?:find|search|look ?up|who is)\s+(.{2,60})$/i);
   if (find) return { kind: 'find_contact', query: find[1].trim() };
+
+  /*
+   * A document named with no number — "Send me sales invoice", a real message twice over.
+   *
+   * It reached the help list, which answers a question the person did not ask and reads as the
+   * bot not understanding. An invoice is identified by its number and there is no sensible
+   * default (the latest is a guess, and the wrong guess is someone else's invoice), so the
+   * only useful reply is to ask for it. Last, so anything with a number still routes normally.
+   */
+  const named = DOCUMENT_BY_NUMBER.find(([pattern]) => pattern.test(lower));
+  // Only when no number was given. "sale invoice 179" carries one and belongs to the ordinary
+  // path; asking "which number?" for a message that just stated it reads as not listening.
+  if (named && !/\d/.test(body)) return { kind: 'need_document_number', displayName: named[1] };
 
   return { kind: 'help' };
 }
