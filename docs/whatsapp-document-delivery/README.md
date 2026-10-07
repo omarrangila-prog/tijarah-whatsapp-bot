@@ -301,3 +301,32 @@ Failures are labelled by cause, because the alert worth having is not "some jobs
 The current queue depth is deliberately not a metric. It is a database question, answered by
 `GET /api/whatsapp-document-jobs/connection`; holding it in Prometheus as well would be a
 second source of truth for something one `SELECT` already knows.
+
+## Which prefix a report lives behind
+
+Verified against the live host on 7 October 2026, by fetching every code both ways and
+checking for a real PDF. It is **not one prefix for everything** — a specification review
+asked for `/internal` to be replaced by `/report` throughout, which would have broken all
+four ledgers:
+
+| Behind `/internal/pdf/`                                             | Behind `/report/pdf/`                                                              |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `GL`, `CUSTOMER`, `VENDOR`, `EXPENSE` (the ledgers, path ends `/L`) | `TB/Y`, `IL/0`, `SS/Y`, `IS/0`, `BS/0`, `CB/0`, `SP/SL`, `SP/SR`, `SP/PR`, `SP/RP` |
+
+The other prefix 404s in both directions, so a mistake here is loud rather than silent.
+
+## The host honours `from` and `to`
+
+Also verified by reading the period printed inside the returned PDF, rather than by trusting
+the parameters were accepted:
+
+| Asked for                       | The PDF says                       |
+| ------------------------------- | ---------------------------------- |
+| `from=2026-01-01&to=2026-03-31` | Period: 01-Jan-2026 to 31-Mar-2026 |
+| `from=2026-07-01&to=2026-07-15` | Period: 01-Jul-2026 to 15-Jul-2026 |
+| neither                         | Period: the last 7 days            |
+
+So a ledger that comes back with the wrong period is this side dropping the dates, not the
+host ignoring them. `parsePeriod` in `src/modules/agent/period-parse.ts` is where a phrase
+becomes those two parameters, and every form it accepts has a test naming the message a real
+client sent.
