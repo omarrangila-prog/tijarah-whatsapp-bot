@@ -46,10 +46,36 @@ const TAGS: Record<string, string> = {
 };
 
 const ROOT_OPTIONS = [
-  { label: 'Receivables — who owes me', documentType: 'customer_ledger' },
-  { label: 'A report (trial balance, balance sheet…)', documentType: null },
-  { label: 'An invoice or voucher by number', documentType: null },
+  { label: '📋  Receivables — who owes me', documentType: 'customer_ledger' },
+  { label: '📊  A report — trial balance, balance sheet…', documentType: null },
+  { label: '📄  An invoice or voucher by number', documentType: null },
 ] as const;
+
+/**
+ * The reports put at the top of the list, in this order.
+ *
+ * WhatsApp has no clickable buttons on a QR-paired number — they are Business-API only — so
+ * the next best thing is a list short enough to take in at a glance. Fourteen alphabetical
+ * entries made a person read to the bottom to find the trial balance; these are the ones the
+ * live transcript shows clients actually asking for, so they come first and the rest follow.
+ */
+const COMMON_FIRST = [
+  'trial_balance',
+  'customer_ledger',
+  'general_ledger',
+  'balance_sheet',
+  'income_statement',
+  'stock_summary',
+];
+
+/** The reports in the order they are offered: the common ones first, then the rest. */
+export function orderReports(reports: MenuReport[]): MenuReport[] {
+  const rank = (r: MenuReport): number => {
+    const i = COMMON_FIRST.indexOf(r.documentType);
+    return i === -1 ? COMMON_FIRST.length : i;
+  };
+  return [...reports].sort((a, b) => rank(a) - rank(b) || a.displayName.localeCompare(b.displayName));
+}
 
 /**
  * The root menu, sent when a client says hello or anything unrecognised.
@@ -58,25 +84,27 @@ const ROOT_OPTIONS = [
  * because it tells a new client what the bot can do without them having to know first.
  */
 export function rootMenu(businessName = 'Tijarah Books'): string {
-  const lines = ROOT_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`);
+  const lines = ROOT_OPTIONS.map((o, i) => `${i + 1}.  ${o.label}`);
   return (
-    `What would you like from ${businessName}?\n\n${lines.join('\n')}\n\n` +
-    `Reply with a number. You can also just ask, e.g. "trial balance for July to September".${TAGS.root}`
+    `*${businessName}*\nWhat would you like?\n\n${lines.join('\n')}\n\n` +
+    `_Reply 1, 2 or 3 — or just ask, e.g. "trial balance for July to September"._${TAGS.root}`
   );
 }
 
-/** The report list, numbered. Capped so one WhatsApp message stays readable. */
+/** The report list: a number per report, and the name itself also works. */
 export function reportMenu(reports: MenuReport[]): string {
-  const lines = reports.slice(0, 20).map((r, i) => `${i + 1}. ${r.displayName}`);
-  return `Which report?\n\n${lines.join('\n')}\n\nReply with a number, or 0 to go back.${TAGS.reports}`;
+  const lines = orderReports(reports)
+    .slice(0, 20)
+    .map((r, i) => `${i + 1}.  ${r.displayName}`);
+  return `*Which report?*\n\n${lines.join('\n')}\n\n_Reply with a number or the name. 0 = back._${TAGS.reports}`;
 }
 
 /** Asked after a dated report is chosen, so a period is never silently "everything". */
 export function periodMenu(displayName: string): string {
   return (
-    `${displayName} — for which period?\n\n` +
-    `1. This month\n2. Last month\n3. This year\n4. Everything\n5. Specific dates\n\n` +
-    `Reply with a number.${TAGS.period}`
+    `*${displayName}* — for which period?\n\n` +
+    `1.  This month\n2.  Last month\n3.  This year\n4.  Everything\n5.  Specific dates\n\n` +
+    `_Reply with a number, or type a period like "July to September"._${TAGS.period}`
   );
 }
 
@@ -102,8 +130,30 @@ export function stepFor(lastBotMessage: string | null): MenuStep | null {
  * the one that cannot disagree with what they saw.
  */
 function documentTypeIn(message: string): string {
-  const match = /^([A-Za-z &'’-]+?)\s+—/.exec(message.trim());
+  // The name is wrapped in WhatsApp's *bold* markers, which are part of the message a person
+  // reads and so part of what has to be parsed back out.
+  const match = /^\*?([A-Za-z &'’-]+?)\*?\s+—/.exec(message.trim());
   return match ? match[1].trim() : '';
+}
+
+/**
+ * A report chosen by typing its name while the list is open.
+ *
+ * Exact first, then a unique partial, so "trial" finds the Trial Balance but "ledger" — which
+ * four reports share — matches nothing and the list is simply shown again. Guessing between
+ * ledgers is how somebody receives the wrong book.
+ */
+function byName(reply: string, reports: MenuReport[]): MenuReport | undefined {
+  const typed = reply.trim().toLowerCase();
+  if (typed.length < 3) return undefined;
+  // A sentence is a request, not a selection: "send me the trial balance for July" carries a
+  // period and belongs to the reasoning, which can act on all of it. Only a bare name is a
+  // choice, so the cutoff is length rather than content.
+  if (typed.split(/\s+/).length > 3) return undefined;
+  const exact = reports.find(r => r.displayName.toLowerCase() === typed);
+  if (exact) return exact;
+  const partial = reports.filter(r => r.displayName.toLowerCase().includes(typed));
+  return partial.length === 1 ? partial[0] : undefined;
 }
 
 /** A whole number a person typed, or null. Tolerates "2." and "option 2". */
@@ -158,6 +208,10 @@ export function advance(
 ): MenuAction {
   const choice = readChoice(reply);
 
+  // "back" or "menu" anywhere returns to the start, so nobody is ever stuck part-way through
+  // a question they did not mean to open.
+  if (/^\s*(back|menu|start|cancel|wapas)\s*$/i.test(reply)) return { kind: 'show', text: rootMenu() };
+
   if (!step || step.kind === 'root') {
     if (choice === null) return { kind: 'none' };
     const option = ROOT_OPTIONS[choice - 1];
@@ -177,9 +231,11 @@ export function advance(
 
   if (step.kind === 'reports') {
     if (choice === 0) return { kind: 'show', text: rootMenu() };
-    if (choice === null) return { kind: 'none' };
-    const report = reports[choice - 1];
-    if (!report) return { kind: 'show', text: reportMenu(reports) };
+    const ordered = orderReports(reports);
+    // The name typed instead of its number: "trial balance" while the list is open is the
+    // same choice as "1", and correcting someone who answered clearly is pure friction.
+    const report = choice === null ? byName(reply, ordered) : ordered[choice - 1];
+    if (!report) return choice === null ? { kind: 'none' } : { kind: 'show', text: reportMenu(reports) };
     return report.datedByDefault
       ? { kind: 'show', text: periodMenu(report.displayName) }
       : { kind: 'report', documentType: report.documentType, from: null, to: null };

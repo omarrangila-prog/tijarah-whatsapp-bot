@@ -338,6 +338,8 @@ const CREATE_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
  * with the general ledger — the sort of near-miss that is worse than not understanding at all,
  * because the person receives a real document and assumes it is the one they asked for.
  */
+import { parsePartyCode, parsePeriod } from './period-parse';
+
 /**
  * A party named in a ledger request, e.g. "Anas Boltan ka ledger bhejo" → "Anas Boltan".
  *
@@ -458,21 +460,20 @@ export function detectIntent(text: string): Intent {
   if (/\b(which|what|list)\b.*\breports?\b/.test(lower)) return { kind: 'list_reports' };
   for (const [pattern, documentType] of REPORT_WORDS) {
     if (pattern.test(lower)) {
-      const dates = body.match(/(\d{4}-\d{2}-\d{2})/g) ?? [];
       /*
-       * A party code narrows the ledger to one account: "send me the ledger for C-1005".
-       * Only a code is recognised, never a name — there is no lookup from "Ahmed" to a code,
-       * and inventing one sends a customer somebody else's ledger.
+       * The period and the party, both of which used to be dropped unless written exactly as
+       * `2026-07-01` and `C-1005`. Clients write "January ledger de" and "for this 0107170",
+       * and every one of those silently returned the whole book instead.
        */
-      const party =
-        /\b(?:for|of|party|code)\s+([A-Z]{1,4}-\d{2,})\b/i.exec(body) ?? /\b([A-Z]{1,4}-\d{3,})\b/.exec(body);
+      const period = parsePeriod(body);
+      const partyCode = parsePartyCode(body);
       return {
         kind: 'report',
         documentType,
-        from: dates[0] ?? null,
-        to: dates[1] ?? null,
-        partyCode: party ? party[1].toUpperCase() : null,
-        partyName: party ? null : partyNameIn(body),
+        from: period?.from ?? null,
+        to: period?.to ?? null,
+        partyCode,
+        partyName: partyCode ? null : partyNameIn(body),
       };
     }
   }

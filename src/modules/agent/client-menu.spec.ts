@@ -88,12 +88,12 @@ describe('advance', () => {
   it('turns "1" at the root into the receivables period question', () => {
     const action = advance(root, '1', REPORTS, NOW);
     expect(action.kind).toBe('show');
-    expect(action.kind === 'show' && action.text).toContain('Customer Ledger — for which period?');
+    expect(action.kind === 'show' && action.text).toContain('*Customer Ledger* — for which period?');
   });
 
   it('turns "2" at the root into the report list', () => {
     const action = advance(root, '2', REPORTS, NOW);
-    expect(action.kind === 'show' && action.text).toContain('1. Balance Sheet');
+    expect(action.kind === 'show' && action.text).toContain('Balance Sheet');
   });
 
   it('sends an undated report straight away, with no period question', () => {
@@ -156,7 +156,32 @@ describe('advance', () => {
   it('never swallows a real request just because a menu is open', () => {
     // This is the rule that keeps the menu additive: free text still reaches the reasoning.
     expect(advance(root, 'send me invoice 179', REPORTS, NOW)).toEqual({ kind: 'none' });
-    expect(advance(reports, 'trial balance', REPORTS, NOW)).toEqual({ kind: 'none' });
+    // A whole sentence is a request, not a selection, even while the report list is open.
+    expect(advance(reports, 'send me the trial balance for July', REPORTS, NOW)).toEqual({ kind: 'none' });
+  });
+
+  it('takes the report name typed instead of its number', () => {
+    // Answering "trial balance" to "Which report?" is as clear as answering "1".
+    const action = advance(reports, 'trial balance', REPORTS, NOW);
+    expect(action.kind === 'show' && action.text).toContain('*Trial Balance* — for which period?');
+  });
+
+  it('does not guess between reports that share a word', () => {
+    // "ledger" is in Customer Ledger, Vendor Ledger, Item Ledger and General Ledger; choosing
+    // one would send somebody the wrong book, so it falls through instead.
+    const many: MenuReport[] = [
+      ...REPORTS,
+      { documentType: 'vendor_ledger', displayName: 'Vendor Ledger', datedByDefault: true },
+      { documentType: 'item_ledger', displayName: 'Item Ledger', datedByDefault: true },
+    ];
+    expect(advance(stepFor(reportMenu(many)), 'ledger', many, NOW)).toEqual({ kind: 'none' });
+  });
+
+  it('goes back to the start from anywhere', () => {
+    for (const word of ['back', 'menu', 'cancel']) {
+      const action = advance(stepFor(periodMenu('Trial Balance')), word, REPORTS, NOW);
+      expect(action.kind === 'show' && action.text).toContain('What would you like');
+    }
   });
 
   it('asks which document when the person chooses an invoice by number', () => {
