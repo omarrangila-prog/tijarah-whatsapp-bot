@@ -46,10 +46,13 @@ In short, on a Linux server with Docker:
 ```bash
 git clone https://github.com/omarrangila-prog/tijarah-whatsapp-bot.git /opt/tijarah-whatsapp-bot
 cd /opt/tijarah-whatsapp-bot/deploy
-sudo ./deploy.sh        # first run creates .env and stops
-sudo nano .env          # fill it in — see Step 2
-sudo ./deploy.sh        # checks everything, builds and starts
+sudo ./deploy.sh                 # first run creates .env and stops
+sudo nano .env                   # fill it in — see Step 2
+sudo ./deploy.sh --auto-update   # checks everything, builds, starts, keeps itself updated
 ```
+
+`--auto-update` is what makes updates automatic: from then on the server checks GitHub every five
+minutes and installs a new version by itself. Use it once; it stays on.
 
 `deploy.sh` checks Tijarah's API before it starts and refuses to go live if something would fail
 silently. If it stops with a message, the message says what to fix.
@@ -66,7 +69,7 @@ clients use it.
 | `TIJARAH_QUEUE_ENABLED`                 | `true`                                         | picks up documents Tijarah Books queues — whatever is queued **will** be delivered         |
 | `APPROVAL_POLL_ENABLED`                 | `true`                                         | when a composed document is approved in Tijarah, sends the finished PDF back to the client |
 | `BOT_REQUIRE_REGISTRATION`              | `true`                                         | only registered clients are served                                                         |
-| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | your AI provider (e.g. Kimi, DeepSeek, OpenAI) | lets the bot understand ordinary sentences                                                 |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | your AI provider (e.g. Kimi, DeepSeek, OpenAI) | **required** for ordinary sentences — without it, fixed phrases only                       |
 | `GEMINI_API_KEY`                        | optional backup AI key                         | used if the provider above is not set or fails                                             |
 | `BOT_REGISTRATION_CONTACT`              | the person who adds new clients                | shown to clients when something needs a human                                              |
 
@@ -155,6 +158,10 @@ Jobs** within seconds and is delivered on its own. You only need this screen to 
 
 Nothing is lost while WhatsApp is disconnected: jobs wait and go out once it reconnects.
 
+Below the connection, a second line says whether the bot is **understanding ordinary sentences**:
+which AI is answering, or — if it is not — the reason and what to fix. When it says _"No AI is set
+up"_, clients only get the help list back, no matter what they type.
+
 ### B. Sending a document yourself
 
 1. **Document Delivery** → **Send to WhatsApp**.
@@ -226,8 +233,26 @@ bot does not answer them.
 
 ## Part 3 — Updating the bot
 
-When a new version is published, run this **from your own computer's terminal**, with your
-server's login in place of `USER@SERVER` (it asks for the server password):
+**If automatic updates are on** (installed with `./deploy.sh --auto-update`), there is nothing to
+do. The server checks GitHub every five minutes and installs any new version by itself. WhatsApp
+stays linked, and clients, settings and history are kept.
+
+To check it is on, or to see the last few updates, on the server:
+
+```bash
+systemctl status tijarah-bot-update.timer
+journalctl -u tijarah-bot-update -n 50
+```
+
+To turn automatic updates on later, or off:
+
+```bash
+cd /opt/tijarah-whatsapp-bot/deploy && sudo ./deploy.sh --auto-update      # on
+cd /opt/tijarah-whatsapp-bot/deploy && sudo ./deploy.sh --no-auto-update   # off
+```
+
+**To update by hand** (automatic updates off, or you do not want to wait), run this **from your own
+computer's terminal**, with your server's login in place of `USER@SERVER`:
 
 ```bash
 ssh -t USER@SERVER 'cd /opt/tijarah-whatsapp-bot && sudo git -c safe.directory=/opt/tijarah-whatsapp-bot pull && cd deploy && sudo ./deploy.sh --no-check'
@@ -235,27 +260,28 @@ ssh -t USER@SERVER 'cd /opt/tijarah-whatsapp-bot && sudo git -c safe.directory=/
 
 Already logged in to the server? Just run the part inside the quotes.
 
-It downloads the new version, rebuilds and restarts — a few minutes. WhatsApp stays linked; you do
-**not** need to scan the QR again. Clients, settings and history are kept.
-
-If it prints an error, copy the last 20 lines and send them to whoever maintains the bot.
+If it prints an error, copy the last 20 lines and send them to whoever maintains the bot. One error
+is worth knowing by name: _"The server's copy has changes of its own"_ means somebody edited the
+files on the server directly. Nothing is overwritten and nothing is deployed until that is sorted
+out.
 
 ---
 
 ## Part 4 — When something goes wrong
 
-| What you see                                                   | Likely cause                                     | Fix                                                                                |
-| -------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| Nothing is delivered; clients get no replies                   | WhatsApp is disconnected                         | **Document Delivery** → **Connect** → scan the QR again                            |
-| One client gets no reply                                       | their number is not registered                   | **Inbox** → their chat → **Tijarah client** → **Add as client**                    |
-| A client gets _"The tool failed: Invalid API key"_             | the server is on an old version                  | update — [Part 3](#part-3--updating-the-bot)                                       |
-| The bot only replies with its _"I can help with…"_ list        | no AI key, or it ran out of credit               | set `AI_API_KEY` (or `GEMINI_API_KEY`) in `.env` and run `deploy.sh`               |
-| A job is `FAILED` — _Document API responded 400_               | wrong document number or company                 | check the number in Tijarah (e.g. `179`), send again                               |
-| A job is `FAILED` — _… is not on WhatsApp_                     | the number is wrong or has no WhatsApp           | check the number with the client, send again                                       |
-| A job is `RETRY_SCHEDULED` — _WHATSAPP_DISCONNECTED_           | WhatsApp dropped                                 | reconnect; the job goes out by itself                                              |
-| A client asks for a ledger by name and the bot asks for a code | the bot can only find parties by account code    | give them the code, e.g. `C-1005`                                                  |
-| The dashboard says the API key is invalid                      | wrong key, or the server's key was reset         | see _"If Invalid API key appears"_ in `INSTALL.md`                                 |
-| Strangers get _"Your number is not registered"_                | an old version, or `BOT_REGISTRATION_REPLY=true` | update — [Part 3](#part-3--updating-the-bot); leave `BOT_REGISTRATION_REPLY` blank |
+| What you see                                                   | Likely cause                                        | Fix                                                                                    |
+| -------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Nothing is delivered; clients get no replies                   | WhatsApp is disconnected                            | **Document Delivery** → **Connect** → scan the QR again                                |
+| A number was stopped and came back on its own                  | normal — a linked number is restarted automatically | nothing; to stop it for good use **Log out**, not **Disconnect**                       |
+| One client gets no reply                                       | their number is not registered                      | **Inbox** → their chat → **Tijarah client** → **Add as client**                        |
+| A client gets _"The tool failed: Invalid API key"_             | the server is on an old version                     | update — [Part 3](#part-3--updating-the-bot)                                           |
+| The bot only replies with its _"I can help with…"_ list        | no AI key, or it ran out of credit                  | the panel on **Document Delivery** names the cause; set the key in `.env` and redeploy |
+| A job is `FAILED` — _Document API responded 400_               | wrong document number or company                    | check the number in Tijarah (e.g. `179`), send again                                   |
+| A job is `FAILED` — _… is not on WhatsApp_                     | the number is wrong or has no WhatsApp              | check the number with the client, send again                                           |
+| A job is `RETRY_SCHEDULED` — _WHATSAPP_DISCONNECTED_           | WhatsApp dropped                                    | reconnect; the job goes out by itself                                                  |
+| A client asks for a ledger by name and the bot asks for a code | the bot can only find parties by account code       | give them the code, e.g. `C-1005`                                                      |
+| The dashboard says the API key is invalid                      | wrong key, or the server's key was reset            | see _"If Invalid API key appears"_ in `INSTALL.md`                                     |
+| Strangers get _"Your number is not registered"_                | an old version, or `BOT_REGISTRATION_REPLY=true`    | update — [Part 3](#part-3--updating-the-bot); leave `BOT_REGISTRATION_REPLY` blank     |
 
 ---
 
@@ -265,6 +291,11 @@ If it prints an error, copy the last 20 lines and send them to whoever maintains
 - **Own books only.** Each client sees only the company they are registered to.
 - **To the asker only.** A report goes back to the number that asked for it — never anyone else.
 - **Never an entry.** Anything composed on WhatsApp waits on Tijarah's approval screen as pending.
+
+**What runs by itself:** documents Tijarah queues are delivered; a stopped number is started again;
+a failed delivery is retried; an approved document goes back to the client; and the server installs
+new versions. What still needs a person: scanning the QR if WhatsApp is logged out, adding a client
+whose number is not on their Tijarah profile, and approving documents in Tijarah.
 
 **Back up** the server's data regularly — it holds the WhatsApp link, your clients and the history
 (command in `deploy/README.md` → _What survives a restart_). Never share the `.env` file or API
