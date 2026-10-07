@@ -130,6 +130,44 @@ describe('RequestAccountingReport', () => {
     expect(created[0].parameters).toMatchObject({ companyId: '1006', branch: 'GR', year: '2026' });
   });
 
+  it('keys a job on what will be fetched, so two different periods are two jobs', async () => {
+    const { request, created } = build();
+    await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      from: '2026-01-01',
+      to: '2026-01-31',
+    });
+    await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      from: '2026-07-01',
+      to: '2026-09-30',
+    });
+
+    /*
+     * The key used to be built from the RAW input while the dates reached the job through
+     * `parameters`, so every dated ledger in one minute collided with the first and the
+     * second was silently swallowed as a duplicate — the person simply never received it.
+     */
+    expect(created).toHaveLength(2);
+    expect(created[0].idempotencyKey).not.toBe(created[1].idempotencyKey);
+    expect(created[0].idempotencyKey).toContain('2026-01-01');
+    expect(created[1].idempotencyKey).toContain('2026-09-30');
+  });
+
+  it('carries the period through to the job it creates', async () => {
+    const { request, created } = build();
+    await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      from: '2026-02-01',
+      to: '2026-02-28',
+    });
+
+    expect(created[0].parameters).toMatchObject({ from: '2026-02-01', to: '2026-02-28' });
+  });
+
   it('refuses a number that is not registered to a company', async () => {
     const { request, created } = build();
     const result = await run(request, { senderPhone: UNREGISTERED, documentType: 'general_ledger' });

@@ -206,11 +206,21 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          * case. A minute is still enough to absorb a double-tap.
          */
         const minute = new Date().toISOString().slice(0, 16);
-        // The company is part of the key: without it two clients asking for the same report in
-        // the same minute would collide and the second would be refused as a duplicate.
+        /*
+         * Keyed on what will actually be FETCHED, not on what was typed.
+         *
+         * `input.partyCode` was used here while a name resolved through the directory lands in
+         * `parameters.partyCode`, so "Danyal's ledger" and "Hamza's ledger" in the same minute
+         * produced the identical key and the second was silently swallowed as a duplicate —
+         * the person simply never received it. The company is part of the key for the same
+         * reason: two clients asking for the same report must not collide.
+         */
+        // Narrowed rather than interpolated raw: `parameters` is Record<string, unknown>, and a
+        // non-string slipping in would stringify to [object Object] and key every job alike.
+        const keyPart = (value: unknown): string => (typeof value === 'string' && value ? value : 'all');
         const idempotencyKey =
           `chat-${tenant.sid}-${tenant.grp}-${input.documentType}-${recipient}-` +
-          `${input.partyCode ?? 'all'}-${input.from ?? 'all'}-${input.to ?? 'all'}-${minute}`;
+          `${keyPart(parameters.partyCode)}-${keyPart(parameters.from)}-${keyPart(parameters.to)}-${minute}`;
 
         try {
           const job = await deps.jobs().create({

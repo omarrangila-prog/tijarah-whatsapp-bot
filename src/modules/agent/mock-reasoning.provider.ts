@@ -215,8 +215,19 @@ export class MockReasoningProvider implements ReasoningProvider {
         );
 
       case 'need_document_number':
+        /*
+         * An invoice is NOT fetchable from a conversation, and saying so is the honest reply.
+         *
+         * Asking "which number?" offered something that cannot be delivered: a document by
+         * number is excluded from chat on purpose, because invoice 179 belongs to one
+         * customer and any client quoting the number would receive it. The bot used to ask
+         * for the number and then answer the number with its help list, which reads as
+         * broken. It now says what it can do instead.
+         */
         return this.finish(
-          `Which ${intent.displayName}? Send its number as Tijarah shows it — for example *${intent.displayName === 'invoice' ? 'invoice' : intent.displayName.toLowerCase()} 179*.`,
+          `A ${intent.displayName === 'invoice' ? 'particular invoice' : intent.displayName.toLowerCase()} is sent to you from Tijarah Books, so I cannot fetch one here.\n\n` +
+            'I can send you a *report* instead — for example the sales book, or your ledger for a period. ' +
+            'Reply *menu* to see the list.',
         );
 
       case 'pending':
@@ -228,13 +239,14 @@ export class MockReasoningProvider implements ReasoningProvider {
         if (role === 'client') {
           return this.finish(
             [
-              'I can help with:',
-              '• *Receivables* — "who owes me", or one customer: "Danyal\u2019s ledger"',
-              '• *Reports* — "trial balance", "balance sheet", "sales book for July to September"',
-              '• *A document* — "invoice 179", or "create a sale invoice for Ahmed Traders, 10 shirts at 1500"',
+              'I did not catch that. I can help with:',
               '',
-              'Dates are optional — say them for a period, leave them out for everything.',
-              'It is all your own company\u2019s books, and it comes back here to you.',
+              '1.  📋  Receivables — who owes me',
+              '2.  📊  A report — trial balance, balance sheet, ledger…',
+              '3.  ✍️  Create a document for approval',
+              '',
+              '_Reply 1, 2 or 3, or type *menu*._',
+              '_You can also just ask: "trial balance for July to September", "Danyal\u2019s ledger last 30 days"._',
             ].join('\n'),
           );
         }
@@ -339,6 +351,7 @@ const CREATE_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
  * because the person receives a real document and assumes it is the one they asked for.
  */
 import { parsePartyCode, parsePeriod } from './period-parse';
+import { fuzzyReport, REPORT_WORD_SETS } from './fuzzy-report';
 
 /**
  * A party named in a ledger request, e.g. "Anas Boltan ka ledger bhejo" → "Anas Boltan".
@@ -353,7 +366,7 @@ import { parsePartyCode, parsePeriod } from './period-parse';
  * are excluded, so "send me the ledger" is not read as a customer called "send me the".
  */
 const LEDGER_NOISE =
-  /^(send|me|my|the|a|an|please|plz|bhej|bhejo|do|de|dedo|chahiye|mujhe|ka|ki|ke|k|is|this|that|for|of|full|all|total|complete|new|old|last|latest|report|statement|account|accounts|pls|kindly|need|want|get|give|show)$/i;
+  /^(send|me|my|the|a|an|please|plz|bhej|bhejo|do|de|dedo|chahiye|mujhe|ka|ki|ke|k|is|this|that|for|of|full|all|total|complete|new|old|last|latest|report|statement|account|accounts|pls|kindly|need|want|get|give|show|aaj|tak|ab|today|till|date|upto|up|to|from|se|days?|day|month|months|year|years|saal|mahina|mahine|current|previous|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?)$/i;
 
 function partyNameIn(body: string): string | null {
   const patterns = [
@@ -402,8 +415,18 @@ const REPORT_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bpurchase\s+return\b/, 'purchase_return_report'],
   [/\bsales?\s+book\b|\bsales?\s+report\b/, 'sales_book_report'],
   [/\bpurchase\s+book\b|\bpurchase\s+report\b/, 'purchase_book_report'],
-  [/\bgeneral\s+ledger\b|\bgl\b|\bledger\b/, 'general_ledger'],
+  [/\bgeneral\s+ledger\b|\bgl\b/, 'general_ledger'],
 ];
+
+/**
+ * The bare word "ledger", which means the general ledger only once nothing else has claimed it.
+ *
+ * Kept out of the table above so the fuzzy pass runs first: with it in the table, "custmer
+ * ledger" matched `\bledger\b` and returned the GENERAL ledger — a real PDF of every
+ * account, to someone who asked for one customer. A near-miss on a specific ledger has to
+ * win over the catch-all, so the catch-all is tried last of all.
+ */
+const BARE_LEDGER = /\bledger\b/;
 
 export function detectIntent(text: string): Intent {
   const body = text.trim();
@@ -478,6 +501,60 @@ export function detectIntent(text: string): Intent {
     }
   }
 
+  /*
+   * A report name typed slightly wrong.
+   *
+   * After the exact table, so a correct spelling never goes near the fuzzy path, and before
+   * everything else, so "trail balance" is answered rather than falling to the help list.
+   */
+  const near = fuzzyReport(lower, REPORT_WORD_SETS);
+  if (near) {
+    const period = parsePeriod(body);
+    const partyCode = parsePartyCode(body);
+    return {
+      kind: 'report',
+      documentType: near,
+      from: period?.from ?? null,
+      to: period?.to ?? null,
+      partyCode,
+      partyName: partyCode ? null : partyNameIn(body),
+    };
+  }
+
+  if (BARE_LEDGER.test(lower)) {
+    const period = parsePeriod(body);
+    const partyCode = parsePartyCode(body);
+    return {
+      kind: 'report',
+      documentType: 'general_ledger',
+      from: period?.from ?? null,
+      to: period?.to ?? null,
+      partyCode,
+      partyName: partyCode ? null : partyNameIn(body),
+    };
+  }
+
+  /*
+   * "Who owes me" is the customer ledger, for a Tijarah client.
+   *
+   * It used to fall to the receivables agent's own overdue tool, which a client is not allowed
+   * to call — so a plain question got "That is not something this number is allowed to ask
+   * for", which reads as an accusation rather than an answer. Receivables ARE the customer
+   * ledger here, so the question is answered instead of refused. The overdue tool still
+   * answers the operator roles it was built for, below.
+   */
+  if (/\b(receivables?|who\s+owes|owes?\s+me|lena\s+hai|outstanding)\b/i.test(lower)) {
+    const period = parsePeriod(body);
+    return {
+      kind: 'report',
+      documentType: 'customer_ledger',
+      from: period?.from ?? null,
+      to: period?.to ?? null,
+      partyCode: parsePartyCode(body),
+      partyName: null,
+    };
+  }
+
   if (/\b(overdue|owes?|owing|outstanding|receivable|who owes)\b/.test(lower)) return { kind: 'overdue' };
 
   const balance = body.match(/\b(?:balance|account|statement)\s+(?:for|of)\s+([A-Za-z0-9_-]{2,40})/i);
@@ -506,7 +583,16 @@ export function detectIntent(text: string): Intent {
   const named = DOCUMENT_BY_NUMBER.find(([pattern]) => pattern.test(lower));
   // Only when no number was given. "sale invoice 179" carries one and belongs to the ordinary
   // path; asking "which number?" for a message that just stated it reads as not listening.
-  if (named && !/\d/.test(body)) return { kind: 'need_document_number', displayName: named[1] };
+  /*
+   * A document named, with or without a number.
+   *
+   * Both get the same answer, because neither can be served: a document by number is
+   * deliberately not reachable from a conversation (invoice 179 belongs to ONE customer, and
+   * any client quoting the number would receive it). Previously only the no-number case was
+   * caught, so "sale invoice 179" fell to the generic fallback and looked like a failure
+   * rather than a boundary.
+   */
+  if (named) return { kind: 'need_document_number', displayName: named[1] };
 
   return { kind: 'help' };
 }

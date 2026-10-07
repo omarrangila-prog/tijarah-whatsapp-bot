@@ -25,7 +25,7 @@ describe('messages real clients sent', () => {
     });
   });
 
-  describe('a document named without its number is asked about, not answered with a menu', () => {
+  describe('a document named in chat is explained, not answered with a menu', () => {
     it.each([
       ['Send me sales invoice', 'Sale Invoice'],
       ['Daniyal bhai sales invoice', 'Sale Invoice'],
@@ -36,9 +36,14 @@ describe('messages real clients sent', () => {
       expect(intent.kind === 'need_document_number' && intent.displayName).toBe(displayName);
     });
 
-    it('still routes normally once the number is there', () => {
-      // Only the no-number case asks; a numbered request must reach the ordinary path.
-      expect(kindOf('sale invoice 179')).not.toBe('need_document_number');
+    it('answers the same way when the number IS given', () => {
+      /*
+       * A document by number is deliberately not reachable from a conversation — invoice 179
+       * belongs to one customer, and any client quoting the number would receive it. So
+       * "sale invoice 179" gets the same explanation as "sales invoice": asking for a number
+       * and then not accepting it was the part that read as broken.
+       */
+      expect(kindOf('sale invoice 179')).toBe('need_document_number');
     });
   });
 
