@@ -367,22 +367,31 @@ export class AgentRuntime {
     return `${name}${period} is on its way — it will arrive here shortly.`;
   }
 
-  /** The reports the menu offers, in the order the registry lists them. */
+  /**
+   * The reports the menu offers.
+   *
+   * Read through the agent's own `ListAccountingReports` tool rather than by reaching for
+   * WhatsAppJobsService: the agent module does not import the jobs module, so resolving the
+   * service turned into an empty list and the menu silently switched itself off — a boot-time
+   * shape no unit test sees. The tool is already in the registry, already permission-checked,
+   * and returns exactly this list.
+   */
   private async menuReports(): Promise<MenuReport[]> {
+    const tool = this.registry.list().find(t => t.name === 'ListAccountingReports');
+    if (!tool) return [];
     try {
-      const jobs = this.moduleRef.get<{
-        listChatRequestable: () => Promise<
-          Array<{ documentType: string; displayName: string; optionalParameters: string[] | null }>
-        >;
-      }>('WhatsAppJobsService', { strict: false });
-      const rows = await jobs.listChatRequestable();
-      return rows.map(row => ({
+      const key = await this.resolveAgentKey(false);
+      if (!key) return [];
+      const result = (await this.invokeWithKeyRecovery(tool, {}, key)) as {
+        reports?: Array<{ documentType: string; name: string; optionalParameters?: string[] }>;
+      };
+      return (result.reports ?? []).map(row => ({
         documentType: row.documentType,
-        displayName: row.displayName,
+        displayName: row.name,
         datedByDefault: (row.optionalParameters ?? []).includes('from'),
       }));
-    } catch {
-      // No registry here (a deployment without the document module) — the menu simply stays off.
+    } catch (error) {
+      this.logger.warn(`menu could not list reports: ${describeToolError(error)}`);
       return [];
     }
   }

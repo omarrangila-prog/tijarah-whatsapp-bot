@@ -4,7 +4,11 @@ import { Repository } from 'typeorm';
 import { KnownParty } from './known-party.entity';
 import { matchParty, type PartyCandidate, type PartyMatch } from './party-match';
 import { normalizeWhatsAppNumber } from '../providers/whatsapp-delivery.provider';
-import type { BotUserService, TenantContext } from './bot-user.service';
+// A VALUE import, not `import type`: Nest reads the constructor's emitted design:paramtypes to
+// know what to inject, and a type-only import is erased, leaving `undefined` and a boot-time
+// "can't resolve dependencies of KnownPartyService" that no unit test sees.
+import { BotUserService } from './bot-user.service';
+import type { TenantContext } from './bot-user.service';
 import { createLogger } from '../../../common/services/logger.service';
 
 /**
