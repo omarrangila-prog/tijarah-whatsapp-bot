@@ -72,6 +72,45 @@ export class KnownPartyService {
     }
   }
 
+  /**
+   * The client's accounts as the host lists them, in the form the matcher takes.
+   *
+   * An account with no name is dropped rather than offered under its code: a menu entry
+   * reading "0104014" helps nobody, and matching a typed name against a code cannot succeed.
+   * A host failure yields an empty list, which falls through to the learned names.
+   */
+  private async hostCandidates(tenant: TenantContext, documentType: string): Promise<PartyCandidate[]> {
+    try {
+      const accounts = await this.users.fetchAccounts(tenant, actHeadForLedger(documentType));
+      return accounts
+        .filter(a => (a.name ?? '').trim())
+        .map(a => ({
+          name: (a.name ?? '').trim(),
+          phone: normalizeWhatsAppNumber(a.telNo ?? '') ?? '',
+          lcode: a.lcode,
+        }));
+    } catch (error) {
+      this.logger.warn(`could not read the account list: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * The item a person means, matched against the client's own stock list.
+   *
+   * Items are matched the same way parties are — exact, then whole word, then word-start,
+   * with two matches asked about rather than chosen — because "Blue Shirt" and "Blue Shirt
+   * XL" are different products and sending the wrong item's ledger is the same mistake as
+   * sending the wrong customer's.
+   */
+  async findItem(tenant: TenantContext, query: string): Promise<PartyMatch> {
+    const items = await this.users.fetchItems(tenant);
+    return matchParty(
+      query,
+      items.map(i => ({ name: i.name.trim(), phone: '', lcode: i.icode })),
+    );
+  }
+
   /** Every customer known in this company's books. */
   async list(tenant: Pick<TenantContext, 'sid' | 'grp'>): Promise<PartyCandidate[]> {
     const rows = await this.parties.find({
@@ -91,6 +130,19 @@ export class KnownPartyService {
    * mean sending one customer's ledger under another's name.
    */
   async find(tenant: TenantContext, query: string, documentType = 'general_ledger'): Promise<PartyMatch> {
+    /*
+     * The host's own chart is searched FIRST, because it is the authority on who exists.
+     *
+     * `GetBotCustomers` began returning a `name` on 8 October 2026. Before that the only
+     * names available were the ones learned from documents as they were delivered, so a
+     * customer who had never been sent anything could not be asked for by name at all. Now
+     * every account in the client's books is reachable, and the learned names below remain
+     * as the fallback for a host that has not been updated — and for the spellings the
+     * business actually uses on a document, which are not always the account's own.
+     */
+    const fromHost = matchParty(query, await this.hostCandidates(tenant, documentType));
+    if (fromHost.kind !== 'none') return fromHost;
+
     const match = matchParty(query, await this.list(tenant));
     if (match.kind !== 'one' || match.party.lcode) return match;
 

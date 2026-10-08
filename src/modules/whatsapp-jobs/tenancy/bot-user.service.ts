@@ -35,11 +35,29 @@ export interface HostClient {
 export type TenantLookup =
   { kind: 'registered'; tenant: TenantContext } | { kind: 'ambiguous'; choices: HostClient[] } | { kind: 'unknown' };
 
-/** One account in the host's chart, as `GetBotCustomers` returns it. */
+/**
+ * One account in the host's chart, as `GetBotCustomers` returns it.
+ *
+ * `name` arrived on 8 October 2026; before that the payload carried a code, a phone and an
+ * email and nothing a person would recognise, which is why a ledger could only be asked for
+ * by code. It is optional here because a host that has not been updated still answers
+ * without it, and a missing name must degrade to "ask for the code" rather than crash.
+ */
 export interface BotAccount {
   lcode: string;
+  name?: string | null;
+  /** The business name, where the host distinguishes it from the account name. */
+  b_name?: string | null;
   telNo: string | null;
   email: string | null;
+}
+
+/** One stock item, as `GetBotItems` returns it. */
+export interface BotItem {
+  icode: string;
+  name: string;
+  salePrice?: number | null;
+  purchasePrice?: number | null;
 }
 
 /**
@@ -273,6 +291,38 @@ export class BotUserService {
       return Array.isArray(body?.data) ? body.data : [];
     } catch (error) {
       this.logger.warn(`could not read accounts: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  /**
+   * The stock items in a client's books.
+   *
+   * `Invtype=ALL` is the only value seen in use. Unlike the account list this one carries a
+   * name, so an item ledger can be asked for by name — "Blue Shirt ka item ledger" — rather
+   * than by a code nobody memorises.
+   */
+  async fetchItems(tenant: TenantContext, invType = 'ALL'): Promise<BotItem[]> {
+    const base = (process.env.TIJARAH_QUEUE_BASE_URL ?? 'https://api.tijarabooks.com/BotConnectApi').replace(/\/$/, '');
+    const url =
+      `${base}/GetBotItems?Sid=${encodeURIComponent(String(tenant.sid))}` +
+      `&Grp=${encodeURIComponent(tenant.grp)}&Invtype=${encodeURIComponent(invType)}`;
+
+    try {
+      const res = await request(url, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        headersTimeout: 30_000,
+        bodyTimeout: 30_000,
+      });
+      if (res.statusCode >= 400) {
+        this.logger.warn(`GetBotItems responded ${res.statusCode}`);
+        return [];
+      }
+      const body = (await res.body.json()) as { data?: BotItem[] };
+      return Array.isArray(body?.data) ? body.data.filter(i => i?.icode && i?.name) : [];
+    } catch (error) {
+      this.logger.warn(`could not read items: ${(error as Error).message}`);
       return [];
     }
   }

@@ -160,6 +160,7 @@ export class MockReasoningProvider implements ReasoningProvider {
             ...(intent.partyCode ? { partyCode: intent.partyCode } : {}),
             // Named, not coded: the report tool resolves it or refuses. Never widened to all.
             ...(intent.partyName ? { partyName: intent.partyName } : {}),
+            ...(intent.itemName ? { itemName: intent.itemName } : {}),
           },
           /*
            * No narration: the PDF is the reply.
@@ -318,6 +319,8 @@ type Intent =
       partyCode: string | null;
       /** A party named rather than coded. Resolved to a code downstream, or refused. */
       partyName: string | null;
+      /** For the item ledger: the product named, resolved against the stock list or refused. */
+      itemName: string | null;
     }
   | { kind: 'list_reports' }
   | { kind: 'create_start'; documentType: string }
@@ -436,6 +439,46 @@ const REPORT_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
  */
 const BARE_LEDGER = /\bledger\b/;
 
+/**
+ * The product named in an item-ledger request: "Vaseline gluta glow ka item ledger bhejo".
+ *
+ * Same two word orders as a party name, but the words "item" and "ledger" are stripped from
+ * the result — without that, "Blue Shirt ka item ledger" yields "Blue Shirt ka item" and
+ * matches nothing in the stock list.
+ */
+function itemNameIn(body: string): string | null {
+  const patterns = [
+    // "item ledger of X" / "item ledger for X". The leading phrase must include "ledger", so
+    // "item ledger for Item 2" keeps the product's own word "Item" rather than eating it.
+    /\bitem\s+ledger\s+(?:of|for|ka|ki|ke)\s+([A-Za-z0-9][A-Za-z0-9 .'&-]{1,60})/i,
+    /\bitem\s+(?:of|for)\s+([A-Za-z0-9][A-Za-z0-9 .'&-]{1,60})/i,
+    /([A-Za-z0-9][A-Za-z0-9 .'&-]{1,60}?)\s+(?:ka|ki|ke)\s+(?:item\s+ledger|ledger)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(body);
+    if (!match) continue;
+    const words = match[1]
+      .trim()
+      .split(/\s+/)
+      /*
+       * Request words are dropped, but only at the FRONT.
+       *
+       * A product name legitimately ends in a bare letter or digit — "Product A", "Item 2" —
+       * and filtering every word turned "Product A" into "Product", which matches nothing in
+       * the stock list. Only the leading filler is noise; once a real word has been seen,
+       * everything after it is part of the name.
+       */
+      .filter((word, i, all) => {
+        const noise = LEDGER_NOISE.test(word) || /^ledger$/i.test(word);
+        if (!noise) return true;
+        // Noise is dropped only while nothing real has appeared yet.
+        return all.slice(0, i).some(w => !LEDGER_NOISE.test(w) && !/^(item|ledger)$/i.test(w));
+      });
+    if (words.length) return words.join(' ');
+  }
+  return null;
+}
+
 export function detectIntent(text: string): Intent {
   const body = text.trim();
   const lower = body.toLowerCase();
@@ -504,7 +547,10 @@ export function detectIntent(text: string): Intent {
         from: period?.from ?? null,
         to: period?.to ?? null,
         partyCode,
-        partyName: partyCode ? null : partyNameIn(body),
+        partyName: documentType === 'item_ledger' ? null : partyCode ? null : partyNameIn(body),
+        // For the item ledger the name in front of "ka item ledger" is a PRODUCT, so it goes
+        // to the stock list rather than being looked up among the customers.
+        itemName: documentType === 'item_ledger' ? itemNameIn(body) : null,
       };
     }
   }
@@ -525,7 +571,8 @@ export function detectIntent(text: string): Intent {
       from: period?.from ?? null,
       to: period?.to ?? null,
       partyCode,
-      partyName: partyCode ? null : partyNameIn(body),
+      partyName: near === 'item_ledger' ? null : partyCode ? null : partyNameIn(body),
+      itemName: near === 'item_ledger' ? itemNameIn(body) : null,
     };
   }
 
@@ -539,6 +586,7 @@ export function detectIntent(text: string): Intent {
       to: period?.to ?? null,
       partyCode,
       partyName: partyCode ? null : partyNameIn(body),
+      itemName: null,
     };
   }
 
@@ -560,6 +608,7 @@ export function detectIntent(text: string): Intent {
       to: period?.to ?? null,
       partyCode: parsePartyCode(body),
       partyName: null,
+      itemName: null,
     };
   }
 

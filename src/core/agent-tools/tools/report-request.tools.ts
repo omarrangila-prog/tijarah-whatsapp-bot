@@ -119,6 +119,11 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           .max(190)
           .optional()
           .describe('A party named rather than coded, e.g. "danyal". Resolved to a code, or refused.'),
+        itemName: z
+          .string()
+          .max(190)
+          .optional()
+          .describe('For the item ledger: an item named rather than coded, e.g. "Blue Shirt".'),
         partyCode: z
           .string()
           .max(40)
@@ -221,6 +226,31 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         }
 
         /*
+         * An item named for the item ledger, resolved the same way a party is.
+         *
+         * Refused rather than widened: an unresolvable item name answered with every item's
+         * ledger is the same disclosure as an unresolvable customer answered with the whole
+         * book — the person asked about one product and would be reading the whole catalogue.
+         */
+        if (resolvedType.documentType === 'item_ledger' && input.itemName?.trim()) {
+          const item = await deps.parties().findItem(tenant, input.itemName);
+          if (item.kind === 'one' && item.party.lcode) {
+            parameters.itemCode = item.party.lcode;
+          } else if (item.kind === 'several') {
+            return {
+              queued: false,
+              reason: `More than one item matches "${input.itemName}".`,
+              items: item.parties.map(p => ({ name: p.name, itemCode: p.lcode })),
+            };
+          } else {
+            return {
+              queued: false,
+              reason: `No item called "${input.itemName}" is in your stock list. Please check the name.`,
+            };
+          }
+        }
+
+        /*
          * Keyed to the minute, not the day.
          *
          * A day-granular key meant asking for the same report twice in one day was refused as
@@ -241,7 +271,8 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          */
         const idempotencyKey =
           `chat-${tenant.sid}-${tenant.grp}-${resolvedType.documentType}-${recipient}-` +
-          `${keyPart(parameters.partyCode)}-${keyPart(parameters.from)}-${keyPart(parameters.to)}-${minute}`;
+          `${keyPart(parameters.partyCode)}-${keyPart(parameters.itemCode)}-` +
+          `${keyPart(parameters.from)}-${keyPart(parameters.to)}-${minute}`;
 
         try {
           const job = await deps.jobs().create({

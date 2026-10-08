@@ -80,9 +80,20 @@ export function matchParty(query: string, candidates: PartyCandidate[]): PartyMa
   const top = scored.filter(entry => entry.score === best).map(entry => entry.party);
 
   const codes = new Set(top.map(party => party.lcode).filter((code): code is string => code !== null));
-  const phones = new Set(top.map(party => party.phone));
+  /*
+   * Only REAL phone numbers count as evidence of one party.
+   *
+   * The host's chart carries plenty of accounts with no phone at all — "-", "_", "0", blank —
+   * and treating those as a shared number made ALI GENERAL STORE and ALI TRADERS look like
+   * one customer, so "Ali ka ledger" silently sent the first of them. Two accounts with no
+   * phone are two accounts; the question gets asked.
+   */
+  const phones = new Set(top.map(party => party.phone).filter(phone => phone && /\d/.test(phone)));
   const sameParty = codes.size === 1 && top.every(party => party.lcode !== null);
-  if (top.length === 1 || sameParty || phones.size === 1) {
+  // One real number shared by every candidate: the same person, spelled differently. A
+  // candidate with no number at all cannot corroborate that, so all of them must carry one.
+  const onePhone = phones.size === 1 && top.every(party => party.phone && /\d/.test(party.phone));
+  if (top.length === 1 || sameParty || onePhone) {
     // Prefer a row that already carries the account code: it is the one a ledger can be fetched with.
     return { kind: 'one', party: top.find(party => party.lcode !== null) ?? top[0] };
   }

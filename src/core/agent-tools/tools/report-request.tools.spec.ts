@@ -27,6 +27,7 @@ describe('RequestAccountingReport', () => {
           report('general_ledger', 'General Ledger'),
           report('customer_ledger', 'Customer Ledger'),
           report('vendor_ledger', 'Vendor Ledger'),
+          report('item_ledger', 'Item Ledger'),
         ]),
       create: (input: Record<string, unknown>) => {
         created.push(input);
@@ -47,7 +48,10 @@ describe('RequestAccountingReport', () => {
       }),
     } as unknown as BotUserService;
     // No remembered customers by default: these tests are about codes and the sender fence.
-    const parties = { find: jest.fn().mockResolvedValue({ kind: 'none' }) } as unknown as KnownPartyService;
+    const parties = {
+      find: jest.fn().mockResolvedValue({ kind: 'none' }),
+      findItem: jest.fn().mockResolvedValue({ kind: 'none' }),
+    } as unknown as KnownPartyService;
     const tools = reportRequestTools({ jobs: () => jobs, users: () => users, parties: () => parties });
     const byName = (name: string) => tools.find(t => t.name === name)!;
     return {
@@ -90,7 +94,7 @@ describe('RequestAccountingReport', () => {
     // An invoice belongs to a named customer; reachable from chat it becomes a way to read
     // someone else's document.
     expect(result.queued).toBe(false);
-    expect(result.available).toEqual(['general_ledger', 'customer_ledger', 'vendor_ledger']);
+    expect(result.available).toEqual(['general_ledger', 'customer_ledger', 'vendor_ledger', 'item_ledger']);
     expect(created).toHaveLength(0);
   });
 
@@ -120,7 +124,12 @@ describe('RequestAccountingReport', () => {
     const result = (await list.handler(list.inputSchema.parse({}) as never, {} as ApiKey)) as {
       reports: { documentType: string }[];
     };
-    expect(result.reports.map(r => r.documentType)).toEqual(['general_ledger', 'customer_ledger', 'vendor_ledger']);
+    expect(result.reports.map(r => r.documentType)).toEqual([
+      'general_ledger',
+      'customer_ledger',
+      'vendor_ledger',
+      'item_ledger',
+    ]);
   });
 
   it("uses the asker's own company, not a default", async () => {
@@ -201,6 +210,58 @@ describe('RequestAccountingReport', () => {
     await run(request, { senderPhone: '923001234567', documentType: 'customer_ledger', partyName: 'zahid' });
 
     expect(created[0].documentType).toBe('customer_ledger');
+  });
+
+  it('resolves a named item to its code for the item ledger', async () => {
+    const { request, created, parties } = build();
+    (parties.findItem as jest.Mock).mockResolvedValue({
+      kind: 'one',
+      party: { name: 'PENASONIC ITEM #1', phone: '', lcode: '001001001' },
+    });
+
+    await run(request, { senderPhone: '923001234567', documentType: 'item_ledger', itemName: 'penasonic' });
+
+    expect(created[0].parameters).toMatchObject({ itemCode: '001001001' });
+  });
+
+  it('refuses an unknown item rather than returning every item', async () => {
+    const { request, created, parties } = build();
+    (parties.findItem as jest.Mock).mockResolvedValue({ kind: 'none' });
+
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'item_ledger',
+      itemName: 'nonesuch',
+    });
+
+    /*
+     * Widening to the whole catalogue would hand someone who asked about one product the
+     * ledger for every product — the same disclosure as an unresolvable customer name being
+     * answered with the whole book.
+     */
+    expect(result.queued).toBe(false);
+    expect(created).toHaveLength(0);
+  });
+
+  it('asks which item when two products match', async () => {
+    const { request, created, parties } = build();
+    (parties.findItem as jest.Mock).mockResolvedValue({
+      kind: 'several',
+      parties: [
+        { name: 'BLUE SHIRT', phone: '', lcode: '001' },
+        { name: 'BLUE SHIRT XL', phone: '', lcode: '002' },
+      ],
+    });
+
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'item_ledger',
+      itemName: 'blue shirt',
+    });
+
+    expect(result.queued).toBe(false);
+    expect(result.items).toHaveLength(2);
+    expect(created).toHaveLength(0);
   });
 
   it('refuses a number that is not registered to a company', async () => {

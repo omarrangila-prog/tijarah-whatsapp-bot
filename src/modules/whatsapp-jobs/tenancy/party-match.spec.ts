@@ -83,6 +83,17 @@ describe('matchParty', () => {
     expect(matchParty('abc', [a, b]).kind).toBe('several');
   });
 
+  it('asks between two accounts that merely both lack a phone number', () => {
+    /*
+     * The host's chart is full of accounts with no phone ("-", "_", "0", blank). Treating
+     * those as a shared number made these two look like one customer, so "Ali ka ledger"
+     * silently sent the first — somebody else's ledger under the name they asked for.
+     */
+    const store = party('ALI GENERAL STORE', '', '0107200');
+    const traders = party('ALI TRADERS', '', '0107201');
+    expect(matchParty('Ali', [store, traders]).kind).toBe('several');
+  });
+
   it('is empty-safe', () => {
     expect(matchParty('danyal', [])).toEqual({ kind: 'none' });
     expect(matchParty('', [DANYAL])).toEqual({ kind: 'none' });
