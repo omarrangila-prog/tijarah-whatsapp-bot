@@ -92,6 +92,12 @@ A document type is a row, so adding one is an operations task rather than a depl
 importable template is [`document-types.import.csv`](./document-types.import.csv) — the columns
 map one-for-one onto the `document_type_registry` table, ready for the Google Sheet.
 
+> **The CSV is a template, not an inventory.** It carries the eleven types this project started
+> with; the deployment now serves twenty-two, the rest added by migration as Tijarah's reports
+> were connected. What a deployment actually serves is
+> `GET /api/whatsapp-document-jobs/document-types`, and that is the list to trust — the table
+> below is a snapshot of it, and a row read out of the CSV is not.
+
 Four response shapes are supported, because document APIs differ in how they hand back a file
 and in nothing else:
 

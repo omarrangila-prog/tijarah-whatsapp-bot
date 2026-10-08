@@ -206,11 +206,28 @@ configured**, so it is the route that never fails.
 Roman Urdu works too (_"danyal ka ledger bhejo"_). Free typing needs the AI settings filled in;
 the menu does not.
 
-The PDF comes back in the same chat. Reports available:
+The PDF comes back in the same chat.
 
-> Balance Sheet · Income Statement · Trial Balance · General Ledger · Customer Ledger ·
-> Vendor Ledger · Expense Ledger · Item Ledger · Cash & Bank Book · Sales Book Report ·
-> Purchase Book Report · Sale Return Report · Purchase Return Report · Stock Summary
+**The 14 reports, and what each one asks for**
+
+| Report                                                  | Asks for                                |
+| ------------------------------------------------------- | --------------------------------------- |
+| Trial Balance, Balance Sheet, Income Statement          | dates only                              |
+| Stock Summary, Cash & Bank Book                         | dates only                              |
+| Sales Book, Purchase Book, Sale Return, Purchase Return | dates only                              |
+| **Customer Ledger**                                     | **which customer**, then dates          |
+| **Vendor Ledger**                                       | **which supplier**, then dates          |
+| **Expense Ledger**                                      | **which expense account**, then dates   |
+| **Item Ledger**                                         | **which item**, then dates              |
+| General Ledger                                          | dates; a name narrows it to one account |
+
+For the four in bold the bot asks who or what before sending — a client who says
+_"customer ledger bhejo"_ is asked **"Which customer?"** rather than being sent every
+customer's balances. Answer with the name, or send **all** for everyone.
+
+**Documents Tijarah sends** (these arrive from Tijarah Books, and cannot be fetched by asking
+in chat — an invoice belongs to one customer): Sale Invoice, Purchase Invoice, Digital Invoice,
+Sale Return, Purchase Return, Payment Voucher, Receive Voucher.
 
 Tell your clients:
 
