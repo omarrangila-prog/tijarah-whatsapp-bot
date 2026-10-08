@@ -82,9 +82,33 @@ describe('RequestAccountingReport', () => {
   const run = async (tool: ReturnType<typeof build>['request'], args: Record<string, unknown>) =>
     (await tool.handler(tool.inputSchema.parse(args) as never, {} as ApiKey)) as Record<string, unknown>;
 
+  it('asks which account for a ledger with nobody named, instead of sending the whole book', async () => {
+    // "Ledger" used to send the full general ledger; the client asked for every ledger to ask.
+    const { request, created } = build();
+    const general = await run(request, { senderPhone: '923001234567', documentType: 'general_ledger' });
+    const item = await run(request, { senderPhone: '923001234567', documentType: 'item_ledger' });
+
+    expect(String(general.reason)).toMatch(/^Which account\?/);
+    expect(String(general.reason)).toContain('send *all* for the full General Ledger');
+    expect(String(item.reason)).toMatch(/^Which item\?/);
+    expect(created).toHaveLength(0);
+  });
+
+  it('sends the whole ledger when *all* is the answer', async () => {
+    const { request, created } = build();
+    await run(request, { senderPhone: '923001234567', documentType: 'item_ledger', itemName: 'all' });
+
+    expect(created).toHaveLength(1);
+    expect(created[0].parameters).not.toHaveProperty('itemCode');
+  });
+
   it('sends the report back to the number that asked', async () => {
     const { request, created } = build();
-    const result = await run(request, { senderPhone: '923001234567', documentType: 'general_ledger' });
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      partyName: 'all',
+    });
 
     expect(result.queued).toBe(true);
     expect(created[0].recipientWhatsAppNumber).toBe('923001234567');
@@ -97,7 +121,12 @@ describe('RequestAccountingReport', () => {
      * handler honours only that field — nothing else in the input names a recipient.
      */
     const { request, created } = build();
-    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', from: '2026-01-01' });
+    await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      partyName: 'all',
+      from: '2026-01-01',
+    });
 
     expect(created[0].recipientWhatsAppNumber).toBe('923001234567');
     expect(JSON.stringify(created[0])).not.toContain('923009998877');
@@ -131,7 +160,7 @@ describe('RequestAccountingReport', () => {
 
   it('omits the period entirely when none is given, which the host reads as the full range', async () => {
     const { request, created } = build();
-    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger' });
+    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'all' });
     // The company is always present; the period is what is omitted, and the host reads a
     // missing period as the full range.
     expect(created[0].parameters).toEqual({ companyId: '1006', branch: 'GR', year: '2026' });
@@ -152,7 +181,7 @@ describe('RequestAccountingReport', () => {
 
   it("uses the asker's own company, not a default", async () => {
     const { request, created } = build();
-    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger' });
+    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'all' });
 
     /*
      * sid and grp are per-client. Two Tijarah businesses using this bot must not both be
@@ -166,12 +195,14 @@ describe('RequestAccountingReport', () => {
     await run(request, {
       senderPhone: '923001234567',
       documentType: 'general_ledger',
+      partyName: 'all',
       from: '2026-01-01',
       to: '2026-01-31',
     });
     await run(request, {
       senderPhone: '923001234567',
       documentType: 'general_ledger',
+      partyName: 'all',
       from: '2026-07-01',
       to: '2026-09-30',
     });
@@ -192,6 +223,7 @@ describe('RequestAccountingReport', () => {
     await run(request, {
       senderPhone: '923001234567',
       documentType: 'general_ledger',
+      partyName: 'all',
       from: '2026-02-01',
       to: '2026-02-28',
     });
@@ -284,7 +316,7 @@ describe('RequestAccountingReport', () => {
 
   it('says nothing when the same report is asked for twice in a minute', async () => {
     const { request } = build();
-    const args = { senderPhone: '923001234567', documentType: 'general_ledger' as const };
+    const args = { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'all' };
     await run(request, args);
     const second = await run(request, args);
 
@@ -341,7 +373,7 @@ describe('RequestAccountingReport', () => {
 
   it('refuses a number that is not registered to a company', async () => {
     const { request, created } = build();
-    const result = await run(request, { senderPhone: UNREGISTERED, documentType: 'general_ledger' });
+    const result = await run(request, { senderPhone: UNREGISTERED, documentType: 'general_ledger', partyName: 'all' });
 
     // No fallback company: that fallback is how one client receives another's ledger.
     expect(result.queued).toBe(false);

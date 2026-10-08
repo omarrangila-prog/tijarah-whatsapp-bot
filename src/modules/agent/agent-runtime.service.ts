@@ -385,6 +385,18 @@ export class AgentRuntime {
     }
 
     /*
+     * More of the name, answering the shortlist instead of a number. The list itself says "Send
+     * more of the item name" when it was cut at eight, and "check the spelling and send it
+     * again" when nothing matched — so that reply has to be read as the name it is.
+     */
+    if (shortlist && !readChoice(text) && !isChitChat(text) && detectIntent(text).kind === 'help') {
+      const period = awaitedPartyPeriod(last?.replyText ?? null);
+      return shortlist.ledger === 'item_ledger'
+        ? this.runItemLedger(message, text, null, period)
+        : this.runPartyLedger(message, 'general_ledger', text, undefined, period);
+    }
+
+    /*
      * A number answering "Which Sale Invoice? Send me its number". Alone, "179" names no
      * document, so without reading the question back the person reached the help list.
      */
@@ -407,6 +419,8 @@ export class AgentRuntime {
     const awaited = awaitedParty(last?.replyText ?? null);
     if (awaited && !readChoice(text) && !isChitChat(text) && detectIntent(text).kind === 'help') {
       const period = awaitedPartyPeriod(last?.replyText ?? null);
+      // "Which item?" is answered with a product, which the stock list resolves.
+      if (awaited === 'item_ledger') return this.runItemLedger(message, text, null, period);
       return this.runPartyLedger(message, awaited, text, undefined, period);
     }
 
@@ -428,8 +442,6 @@ export class AgentRuntime {
         name: 'RequestAccountingReport',
         input: {
           documentType: action.documentType,
-          // "Who owes me money": every customer, said by choosing the option rather than typed.
-          ...(action.everyone ? { partyName: 'all' } : {}),
           ...(action.from ? { from: action.from } : {}),
           ...(action.to ? { to: action.to } : {}),
         },

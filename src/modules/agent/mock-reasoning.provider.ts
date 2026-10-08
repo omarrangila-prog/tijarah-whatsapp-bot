@@ -820,12 +820,8 @@ export function detectIntent(text: string): Intent {
       from: period?.from ?? null,
       to: period?.to ?? null,
       partyCode,
-      /*
-       * EVERY customer. "Send me list of receivables" and "who owes me" ask about all of them;
-       * answering "Which customer?" — as these did once a party ledger began asking — turned
-       * the plainest question a business has into a question back.
-       */
-      partyName: partyCode ? null : 'all',
+      // No name: the report tool asks "Which customer?", with *all* offered for everyone.
+      partyName: null,
       itemName: null,
     };
   }

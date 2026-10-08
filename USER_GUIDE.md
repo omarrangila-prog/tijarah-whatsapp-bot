@@ -198,8 +198,8 @@ They reply with a number, pick a report from the list, then pick a period — la
 30 days, this month, this year, up to today, or their own dates. The PDF arrives. **This works
 even if no AI is configured**, so it is the route that never fails.
 
-- **1 — Who owes me money** sends the customer ledger for **every** customer, for the period
-  they pick.
+- **1 — Who owes me money** asks the period, then **which customer** — or send **all** for
+  every customer.
 - **3 — Get an invoice or voucher** asks for the type and number, e.g. _sale invoice 179_.
 
 **Or just ask**, in ordinary words:
@@ -216,25 +216,27 @@ The PDF comes back in the same chat.
 
 **The 14 reports, and what each one asks for**
 
-| Report                                                  | Asks for                                |
-| ------------------------------------------------------- | --------------------------------------- |
-| Trial Balance, Balance Sheet, Income Statement          | dates only                              |
-| Stock Summary, Cash & Bank Book                         | dates only                              |
-| Sales Book, Purchase Book, Sale Return, Purchase Return | dates only                              |
-| **Customer Ledger**                                     | **which customer**, then dates          |
-| **Vendor Ledger**                                       | **which supplier**, then dates          |
-| **Expense Ledger**                                      | **which expense account**, then dates   |
-| **Item Ledger**                                         | **which item**, then dates              |
-| General Ledger                                          | dates; a name narrows it to one account |
+| Report                                                  | Asks for                              |
+| ------------------------------------------------------- | ------------------------------------- |
+| Trial Balance, Balance Sheet, Income Statement          | dates only                            |
+| Stock Summary, Cash & Bank Book                         | dates only                            |
+| Sales Book, Purchase Book, Sale Return, Purchase Return | dates only                            |
+| **Customer Ledger**                                     | **which customer**, then dates        |
+| **Vendor Ledger**                                       | **which supplier**, then dates        |
+| **Expense Ledger**                                      | **which expense account**, then dates |
+| **Item Ledger**                                         | **which item**, then dates            |
+| **General Ledger** (or just _"ledger"_)                 | **which account**, then dates         |
 
-For the four in bold the bot asks who or what before sending — a client who says
-_"customer ledger bhejo"_ is asked **"Which customer?"** rather than being sent every
-customer's balances. Answer with the name, or send **all** for everyone.
+**Every ledger asks who or what before sending** — a client who says _"customer ledger bhejo"_
+is asked **"Which customer?"**, _"ledger"_ is asked **"Which account?"**, and the Item Ledger
+asks **"Which item?"**, rather than sending everyone's figures. Answer with the name, or send
+**all** for everyone. The other reports (trial balance, balance sheet and so on) need no name.
 
 When a name fits more than one account — three accounts are all called _USMAN_ — the bot lists
 them with their account code (and phone, where there is one) and the client sends the number.
 When a name fits nothing, it offers the closest names instead: _"khuzema ahmed"_ →
-_"Did you mean KHUZEMA TRADEVIVE?"_. Any dates asked for stay with the choice.
+_"Did you mean KHUZEMA TRADEVIVE?"_. When a list is too long, typing more of the name narrows
+it (_"sheglam curler"_). Any dates asked for stay with the choice.
 
 _"Last 30 days ki invoice"_ or _"January sales invoice"_ — invoices for a period, with no number —
 sends the **sales book** for that period (purchase invoices: the purchase book).

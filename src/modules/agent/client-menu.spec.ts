@@ -87,22 +87,10 @@ describe('advance', () => {
   const reports = stepFor(reportMenu(REPORTS));
 
   it('turns "1" at the root into the receivables period question', () => {
+    // The customer is asked for next, by the report tool, like every ledger.
     const action = advance(root, '1', REPORTS, NOW);
     expect(action.kind).toBe('show');
-    expect(action.kind === 'show' && action.text).toContain('*Who owes me money* — for which dates?');
-  });
-
-  it('answers "who owes me money" with EVERY customer, not a question back', () => {
-    // A real client chose 1, then a period, and was asked "Which customer?" — for the one
-    // question that is about all of them.
-    const period = stepFor(advance(root, '1', REPORTS, NOW).kind === 'show' ? periodMenu('Who owes me money') : '');
-    expect(advance(period, '4', REPORTS, NOW)).toEqual({
-      kind: 'report',
-      documentType: 'customer_ledger',
-      from: '2026-09-07',
-      to: '2026-10-07',
-      everyone: true,
-    });
+    expect(action.kind === 'show' && action.text).toContain('*Customer Ledger* — for which dates?');
   });
 
   it('turns "2" at the root into the report list', () => {

@@ -362,7 +362,7 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         if (resolvedType.documentType === 'item_ledger' && input.itemCode?.trim()) {
           // Picked off a shortlist: the code the bot itself listed, inside the asker's company.
           parameters.itemCode = input.itemCode.trim();
-        } else if (resolvedType.documentType === 'item_ledger' && itemName) {
+        } else if (resolvedType.documentType === 'item_ledger' && itemName && !wantsEveryone(itemName)) {
           const item = await deps.parties().findItem(tenant, itemName);
           if (item.kind === 'one' && item.party.lcode) {
             parameters.itemCode = item.party.lcode;
@@ -407,20 +407,37 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          * people's balances to someone who almost always meant one person. Asking costs one
          * message and is what a clerk would do. "All" still works, said deliberately.
          */
-        const PARTY_LEDGERS: Record<string, string> = {
-          customer_ledger: 'customer',
-          vendor_ledger: 'supplier',
-          expense_ledger: 'expense account',
+        /*
+         * EVERY ledger asks first — the item ledger and the general ledger too.
+         *
+         * They used to go out unasked: "Ledger" sent the whole general ledger and the Item
+         * Ledger sent every item, when the person nearly always meant one. The client asked
+         * for the bot to ask "which customer, which item, everything" before sending.
+         */
+        const PARTY_LEDGERS: Record<string, { who: string; example: string; all: string }> = {
+          customer_ledger: { who: 'customer', example: 'Danyal', all: 'to get every customer' },
+          vendor_ledger: { who: 'supplier', example: 'Zahid Traders', all: 'to get every supplier' },
+          expense_ledger: { who: 'expense account', example: 'Electricity', all: 'to get every expense account' },
+          item_ledger: { who: 'item', example: 'Blue Shirt', all: 'to get every item' },
+          general_ledger: { who: 'account', example: 'Danyal', all: 'for the full General Ledger' },
         };
-        const who = PARTY_LEDGERS[resolvedType.documentType];
-        if (who && !parameters.partyCode && !parameters.documentNumber && !wantsEveryone(input.partyName)) {
+        const ask = PARTY_LEDGERS[resolvedType.documentType];
+        const named =
+          parameters.partyCode ||
+          parameters.itemCode ||
+          parameters.documentNumber ||
+          wantsEveryone(input.partyName) ||
+          wantsEveryone(input.itemName);
+        if (ask && !named) {
           return {
             queued: false,
-            needsParty: who,
+            needsParty: ask.who,
             reason:
-              `Which ${who}?\n\n` +
-              `Just send me the name — for example *${who === 'supplier' ? 'Zahid Traders' : 'Danyal'}*.\n` +
-              `Or send *all* to get every ${who}.` +
+              `Which ${ask.who}?\n\n` +
+              (ask.who === 'account'
+                ? `Send me a customer, supplier or item name — for example *${ask.example}*.\n`
+                : `Just send me the name — for example *${ask.example}*.\n`) +
+              `Or send *all* ${ask.all}.` +
               /*
                * The dates already chosen, written into the question so the answer can carry
                * them: picking "Last 30 days" and then a name must not quietly become the

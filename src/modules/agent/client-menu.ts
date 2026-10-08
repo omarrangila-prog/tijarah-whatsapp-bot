@@ -27,7 +27,7 @@ export interface MenuReport {
 /** What the caller should do once a reply has been read. */
 export type MenuAction =
   | { kind: 'show'; text: string }
-  | { kind: 'report'; documentType: string; from: string | null; to: string | null; everyone?: boolean }
+  | { kind: 'report'; documentType: string; from: string | null; to: string | null }
   | { kind: 'document'; prompt: string }
   | { kind: 'none' };
 
@@ -81,15 +81,13 @@ const LEGACY_TAGS: Record<string, string> = {
 const tagged = (message: string, step: string): boolean =>
   message.includes(TAGS[step]) || message.includes(LEGACY_TAGS[step]);
 
-/**
- * Option 1's own title on the dates question, so the next step knows it means EVERY customer.
- * "Who owes me money" answered with "Which customer?" was a question back to the plainest
- * question a business asks; it is the receivables of all of them.
+/*
+ * Option 1 is the customer ledger, and like every ledger it asks WHICH customer after the
+ * dates — "send *all* for every customer" is offered in that question. The client asked for the
+ * bot to ask who before sending, not to decide on their behalf that it meant everyone.
  */
-export const RECEIVABLES_TITLE = 'Who owes me money';
-
 const ROOT_OPTIONS = [
-  { label: RECEIVABLES_TITLE, documentType: 'customer_ledger' },
+  { label: 'Who owes me money', documentType: 'customer_ledger' },
   { label: 'Send me a report', documentType: null },
   { label: 'Get an invoice or voucher', documentType: null },
 ] as const;
@@ -297,6 +295,8 @@ export function awaitedParty(lastBotMessage: string | null): string | null {
   if (/^Which customer\?/.test(lastBotMessage)) return 'customer_ledger';
   if (/^Which supplier\?/.test(lastBotMessage)) return 'vendor_ledger';
   if (/^Which expense account\?/.test(lastBotMessage)) return 'expense_ledger';
+  if (/^Which item\?/.test(lastBotMessage)) return 'item_ledger';
+  if (/^Which account\?/.test(lastBotMessage)) return 'general_ledger';
   return null;
 }
 
@@ -442,10 +442,7 @@ export function advance(
     if (option.documentType) {
       const report = reports.find(r => r.documentType === option.documentType);
       return report
-        ? {
-            kind: 'show',
-            text: periodMenu(option.label === RECEIVABLES_TITLE ? RECEIVABLES_TITLE : report.displayName),
-          }
+        ? { kind: 'show', text: periodMenu(report.displayName) }
         : { kind: 'show', text: reportMenu(reports) };
     }
     if (choice === 2) return { kind: 'show', text: reportMenu(reports) };
@@ -468,16 +465,11 @@ export function advance(
   }
 
   if (step.kind === 'period') {
-    const everyone = step.documentType === RECEIVABLES_TITLE;
-    const report = everyone
-      ? reports.find(r => r.documentType === 'customer_ledger')
-      : reports.find(r => r.displayName === step.documentType);
+    const report = reports.find(r => r.displayName === step.documentType);
     if (!report) return { kind: 'show', text: reportMenu(reports) };
     if (choice === 0) return { kind: 'show', text: reportMenu(reports) };
     // 8 is the custom range in PERIOD_OPTIONS: a prompt for two dates, not a period itself.
-    if (choice === PERIOD_OPTIONS.length) {
-      return { kind: 'show', text: datesPrompt(everyone ? RECEIVABLES_TITLE : report.displayName) };
-    }
+    if (choice === PERIOD_OPTIONS.length) return { kind: 'show', text: datesPrompt(report.displayName) };
     const period = choice === null ? null : periodFor(choice, now);
     if (!period) {
       /*
@@ -486,14 +478,7 @@ export function advance(
        * work here too rather than only the two forms this menu happens to print.
        */
       const typed = onlyAPeriod(reply) ? (readDates(reply) ?? parsePeriod(reply, now)) : null;
-      if (typed)
-        return {
-          kind: 'report',
-          documentType: report.documentType,
-          from: typed.from,
-          to: typed.to,
-          ...(everyone ? { everyone: true } : {}),
-        };
+      if (typed) return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to };
       /*
        * Anything else is a NEW request, not a bad answer.
        *
@@ -505,20 +490,11 @@ export function advance(
        */
       return { kind: 'none' };
     }
-    return {
-      kind: 'report',
-      documentType: report.documentType,
-      from: period.from,
-      to: period.to,
-      ...(everyone ? { everyone: true } : {}),
-    };
+    return { kind: 'report', documentType: report.documentType, from: period.from, to: period.to };
   }
 
   // step.kind === 'dates'
-  const everyone = step.documentType === RECEIVABLES_TITLE;
-  const report = everyone
-    ? reports.find(r => r.documentType === 'customer_ledger')
-    : reports.find(r => r.displayName === step.documentType);
+  const report = reports.find(r => r.displayName === step.documentType);
   if (!report) return { kind: 'show', text: reportMenu(reports) };
   /*
    * The prompt shows the dates day-first — "01-07-2026 to 30-09-2026" — because that is how
@@ -526,14 +502,8 @@ export function advance(
    * example exactly was shown the same prompt again, forever.
    */
   const typed = readDates(reply) ?? parsePeriod(reply, now);
-  if (!typed) return { kind: 'show', text: datesPrompt(everyone ? RECEIVABLES_TITLE : report.displayName) };
-  return {
-    kind: 'report',
-    documentType: report.documentType,
-    from: typed.from,
-    to: typed.to,
-    ...(everyone ? { everyone: true } : {}),
-  };
+  if (!typed) return { kind: 'show', text: datesPrompt(report.displayName) };
+  return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to };
 }
 
 /**

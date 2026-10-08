@@ -2,6 +2,7 @@ import { detectIntent, composeDetails, parseLineItems, priceAnswer } from './moc
 import {
   awaitedChoice,
   awaitedDocument,
+  awaitedParty,
   awaitedPartyPeriod,
   documentNumberPrompt,
   isChitChat,
@@ -124,11 +125,33 @@ describe('names, as clients write them', () => {
   });
 });
 
-describe('receivables are everyone', () => {
+describe('every ledger asks who or what first', () => {
+  it('reads the answer to "Which item?" and "Which account?" back to its ledger', () => {
+    expect(awaitedParty('Which item?\n\nJust send me the name — for example *Blue Shirt*.')).toBe('item_ledger');
+    expect(awaitedParty('Which account?\n\nSend me a customer, supplier or item name.')).toBe('general_ledger');
+    expect(awaitedParty('Which customer?\n\nJust send me the name.')).toBe('customer_ledger');
+  });
+
+  it('keeps the dates the question was asked with', () => {
+    expect(awaitedPartyPeriod('Which item?\n\nOr send *all*.\n\nDates: 01-09-2026 to 30-09-2026')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-30',
+    });
+  });
+
+  it('"Ledger" names nobody, so the account is asked for', () => {
+    const intent = detectIntent('Ledger');
+    expect(intent.kind === 'report' && intent.documentType).toBe('general_ledger');
+    expect(intent.kind === 'report' && intent.partyName).toBeNull();
+  });
+});
+
+describe('receivables ask which customer, like every ledger', () => {
   it.each(['send me list of receivables', 'Receivable report de', 'who owes me'])('%s', text => {
+    // No name means the report tool asks "Which customer?" — *all* is offered there.
     const intent = detectIntent(text);
     expect(intent.kind === 'report' && intent.documentType).toBe('customer_ledger');
-    expect(intent.kind === 'report' && intent.partyName).toBe('all');
+    expect(intent.kind === 'report' && intent.partyName).toBeNull();
   });
 });
 
