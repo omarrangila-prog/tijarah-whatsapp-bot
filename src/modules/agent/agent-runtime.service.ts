@@ -35,7 +35,16 @@ import type {
   SenderRole,
 } from '../../integrations/whatsapp/agent-message.types';
 import { buildSystemPrompt } from './agent-prompt';
-import { advance, MENU_TRIGGER, rootMenu, stepFor, type MenuReport } from './client-menu';
+import {
+  advance,
+  awaitedChoice,
+  awaitedParty,
+  MENU_TRIGGER,
+  readChoice,
+  rootMenu,
+  stepFor,
+  type MenuReport,
+} from './client-menu';
 import { toJsonSchema } from './zod-to-json-schema';
 
 /**
@@ -333,6 +342,37 @@ export class AgentRuntime {
       where: { senderPhone: message.senderPhone },
       order: { createdAt: 'DESC' },
     });
+    /*
+     * A name answering "Which customer?".
+     *
+     * The question is asked by RequestAccountingReport when a party ledger names nobody, and
+     * the answer is a bare name — which matches no menu step and no keyword, so it fell to
+     * "I did not understand that" and the person was stuck in a loop. Read back out of the
+     * question itself, like every other step here, so no session has to be kept.
+     */
+    /*
+     * A number answering "I found a few people called X. Which one?".
+     *
+     * The chosen name is sent back through the same path a typed name takes, so the one
+     * lookup and the one permission check cover both. Checked before the party question
+     * below, because a shortlist is the more specific state.
+     */
+    const shortlist = awaitedChoice(last?.replyText ?? null);
+    if (shortlist) {
+      const picked = readChoice(text);
+      const name = picked ? shortlist.names[picked - 1] : undefined;
+      if (name) {
+        return shortlist.ledger === 'item_ledger'
+          ? this.runItemLedger(message, name)
+          : this.runPartyLedger(message, 'general_ledger', name);
+      }
+    }
+
+    const awaited = awaitedParty(last?.replyText ?? null);
+    if (awaited && !readChoice(text)) {
+      return this.runPartyLedger(message, awaited, text);
+    }
+
     const action = advance(stepFor(last?.replyText ?? null), text, reports);
 
     if (action.kind === 'none') return null;
@@ -371,6 +411,61 @@ export class AgentRuntime {
      * the fetch fails, the worker says so itself. One message per document, and it is the
      * document. An empty string is the runtime's "send nothing".
      */
+    return '';
+  }
+
+  /**
+   * Re-runs the party ledger the bot just asked about, with the name the person gave.
+   *
+   * Goes through `executeCall` like everything else, so the permission layer, the sender
+   * pinning and the audit record are the ordinary ones. A refusal — two matches, or a name
+   * that is not in the chart — is passed back word for word, because the tool's wording is
+   * what tells the person what to do next.
+   */
+  private async runPartyLedger(
+    message: NormalizedAgentMessage,
+    documentType: string,
+    partyName: string,
+  ): Promise<string | null> {
+    const outcome = await this.executeCall(
+      {
+        id: `party.${Date.now()}`,
+        name: 'RequestAccountingReport',
+        input: { documentType, partyName },
+      },
+      message,
+      this.toolsFor(message.senderRole, false),
+    );
+    if (outcome.record.decision === 'denied') return outcome.record.reason ?? null;
+
+    const parsed = ((): Record<string, unknown> | null => {
+      try {
+        return JSON.parse(outcome.content) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })();
+    if (parsed && parsed.queued === false && typeof parsed.reason === 'string') return parsed.reason;
+    // Queued: the document is the reply.
+    return '';
+  }
+
+  /** The item ledger for a product the person picked off a shortlist. */
+  private async runItemLedger(message: NormalizedAgentMessage, itemName: string): Promise<string | null> {
+    const outcome = await this.executeCall(
+      { id: `item.${Date.now()}`, name: 'RequestAccountingReport', input: { documentType: 'item_ledger', itemName } },
+      message,
+      this.toolsFor(message.senderRole, false),
+    );
+    if (outcome.record.decision === 'denied') return outcome.record.reason ?? null;
+    const parsed = ((): Record<string, unknown> | null => {
+      try {
+        return JSON.parse(outcome.content) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })();
+    if (parsed && parsed.queued === false && typeof parsed.reason === 'string') return parsed.reason;
     return '';
   }
 

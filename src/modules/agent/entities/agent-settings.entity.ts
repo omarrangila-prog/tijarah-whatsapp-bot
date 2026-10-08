@@ -85,8 +85,15 @@ export class AgentSettings {
   @Column({ type: 'int', default: 60 })
   approvalTtlMinutes!: number;
 
-  /** Model turns per sender per hour, so a chatty number cannot exhaust the model budget. */
-  @Column({ type: 'int', default: 30 })
+  /**
+   * Model turns per sender per hour, so a chatty number cannot exhaust the model budget.
+   *
+   * 30 was too low for the way the bot is actually used: composing one invoice is a dozen
+   * short messages, and a client doing that then asking for a report hit the cap mid-draft
+   * and was told to try again later — with a half-finished invoice open. 120 still bounds a
+   * runaway loop while leaving room for a normal working session.
+   */
+  @Column({ type: 'int', default: 120 })
   maxTurnsPerSenderPerHour!: number;
 
   @UpdateDateColumn()

@@ -113,6 +113,20 @@ export class MockReasoningProvider implements ReasoningProvider {
       if (line) {
         return this.callIfAvailable(available, 'AddDraftLineItem', line, 'Adding that line.');
       }
+      /*
+       * A line that names a quantity and an item but no price.
+       *
+       * "4pcs led bulb" and "led bulb 300pcs" were both answered with "Nothing is waiting on
+       * an answer", which tells a person nothing about what was wrong. The missing piece is
+       * the rate, so that is what gets asked for.
+       */
+      const partial = parsePartialLine(text);
+      if (partial) {
+        return this.finish(
+          `How much per ${partial.unit ?? 'piece'} for *${partial.description}*?\n\n` +
+            `Send it like this: _${partial.quantity} ${partial.description} at 600_`,
+        );
+      }
       return this.callIfAvailable(available, 'AnswerDraftPrompt', { value: text }, 'Noted.');
     }
 
@@ -223,6 +237,14 @@ export class MockReasoningProvider implements ReasoningProvider {
           'Preparing that payment for approval.',
         );
 
+      case 'which_voucher':
+        return this.finish(
+          'Which voucher?\n\n' +
+            '1.  Payment voucher — money you paid out\n' +
+            '2.  Receive voucher — money you took in\n\n' +
+            'Send the number, or say _create payment voucher_.',
+        );
+
       case 'need_document_number':
         /*
          * An invoice is NOT fetchable from a conversation, and saying so is the honest reply.
@@ -248,14 +270,18 @@ export class MockReasoningProvider implements ReasoningProvider {
         if (role === 'client') {
           return this.finish(
             [
-              'I did not catch that. I can help with:',
+              'Sorry, I did not understand that. Here is what I can do:',
               '',
-              '1.  📋  Receivables — who owes me',
-              '2.  📊  A report — trial balance, balance sheet, ledger…',
-              '3.  ✍️  Create a document for approval',
+              '1.  Who owes me money',
+              '2.  Send me a report',
+              '3.  Make a new invoice or voucher',
               '',
-              '_Reply 1, 2 or 3, or type *menu*._',
-              '_You can also just ask: "trial balance for July to September", "Danyal\u2019s ledger last 30 days"._',
+              'Just send 1, 2 or 3.',
+              '',
+              'Or type it in your own words, like:',
+              '• _Danyal ka ledger_',
+              '• _trial balance_',
+              '• _last 30 days ka ledger_',
             ].join('\n'),
           );
         }
@@ -329,6 +355,8 @@ type Intent =
   | { kind: 'create_cancel' }
   /** A document named without its number: ask for the number rather than offering the menu. */
   | { kind: 'need_document_number'; displayName: string }
+  /** "voucher", with no kind said: payment or receive? */
+  | { kind: 'which_voucher' }
   | { kind: 'help' };
 
 /**
@@ -637,6 +665,17 @@ export function detectIntent(text: string): Intent {
    * default (the latest is a guess, and the wrong guess is someone else's invoice), so the
    * only useful reply is to ask for it. Last, so anything with a number still routes normally.
    */
+  /*
+   * "voucher" on its own, with no kind and no number.
+   *
+   * Three real messages on 8 October — "voucher", "voucher create karo", "mujhe daniyal ka
+   * voucher do" — all fell to the help list, because every rule wants to know WHICH voucher.
+   * There are only two, so asking is one short question rather than a menu of everything.
+   */
+  if (/\bvoucher\b/.test(lower) && !/\b(payment|receive|receipt)\b/.test(lower)) {
+    return { kind: 'which_voucher' };
+  }
+
   const named = DOCUMENT_BY_NUMBER.find(([pattern]) => pattern.test(lower));
   // Only when no number was given. "sale invoice 179" carries one and belongs to the ordinary
   // path; asking "which number?" for a message that just stated it reads as not listening.
@@ -964,8 +1003,40 @@ export function summariseForCustomer(content: string, isError: boolean): string 
  * a description on its own is far more likely to be the answer to a field question, and
  * guessing wrong puts the customer's name on an invoice line.
  */
+/**
+ * A line that names a quantity and an item but no price: "4pcs led bulb", "led bulb 300pcs".
+ *
+ * Returned separately from a complete line so the caller can ask for the one missing piece
+ * rather than refusing the whole line. Never guesses a price — a wrong rate on an invoice is
+ * worse than a question.
+ */
+export function parsePartialLine(text: string): { description: string; quantity: string; unit: string | null } | null {
+  const body = String(text ?? '')
+    .trim()
+    .replace(/^\s*\(?\d{1,2}\s*[.)\]]\s+/, '');
+  if (!body || /\b(at|@)\b/i.test(body)) return null;
+
+  const unit = '(pcs|pc|piece|pieces|kg|g|box|boxes|dozen|meter|metre|m|ltr|litre|liter)';
+  // "4pcs led bulb" / "250 cotton fabric"
+  const leading = new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*${unit}?\\s+(.{2,60})$`, 'i').exec(body);
+  if (leading) return { quantity: leading[1], unit: leading[2] ?? null, description: leading[3].trim() };
+  // "led bulb 300pcs"
+  const trailing = new RegExp(`^(.{2,60}?)\\s+(\\d+(?:\\.\\d+)?)\\s*${unit}?$`, 'i').exec(body);
+  if (trailing) return { description: trailing[1].trim(), quantity: trailing[2], unit: trailing[3] ?? null };
+  return null;
+}
+
 export function parseLineItem(text: string): { description: string; quantity: string; rate: string } | null {
-  const body = String(text ?? '').trim();
+  /*
+   * A leading list number is stripped.
+   *
+   * A client wrote "1. 250 cotton fabric at 600" on 8 October and it parsed as nothing,
+   * because the "1." was read as the quantity and the rest no longer matched. People number
+   * their lines; the numbering is not part of the item.
+   */
+  const body = String(text ?? '')
+    .trim()
+    .replace(/^\s*\(?\d{1,2}\s*[.)\]]\s+/, '');
   if (!body) return null;
 
   const leading = /^(\d+(?:\.\d+)?)\s+(.+?)\s+(?:at|@|x|\*)\s*(\d+(?:\.\d+)?)$/i.exec(body);

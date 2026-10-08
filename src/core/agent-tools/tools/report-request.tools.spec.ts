@@ -115,6 +115,8 @@ describe('RequestAccountingReport', () => {
     await run(request, {
       senderPhone: '923001234567',
       documentType: 'customer_ledger',
+      // "all" is how a person asks for every party; without it the tool asks which customer.
+      partyName: 'all',
       from: '2026-01-01',
       to: '2026-06-30',
     });
@@ -297,7 +299,7 @@ describe('RequestAccountingReport', () => {
 
     // No fallback company: that fallback is how one client receives another's ledger.
     expect(result.queued).toBe(false);
-    expect(String(result.reason)).toMatch(/not registered/i);
+    expect(String(result.reason)).toMatch(/not set up with an account/i);
     expect(created).toHaveLength(0);
   });
 

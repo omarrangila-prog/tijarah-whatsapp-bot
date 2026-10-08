@@ -57,9 +57,9 @@ const TAGS: Record<string, string> = {
 };
 
 const ROOT_OPTIONS = [
-  { label: '📋  Receivables — who owes me', documentType: 'customer_ledger' },
-  { label: '📊  A report — trial balance, balance sheet…', documentType: null },
-  { label: '📄  An invoice or voucher by number', documentType: null },
+  { label: 'Who owes me money', documentType: 'customer_ledger' },
+  { label: 'Send me a report', documentType: null },
+  { label: 'About an invoice', documentType: null },
 ] as const;
 
 /**
@@ -97,8 +97,8 @@ export function orderReports(reports: MenuReport[]): MenuReport[] {
 export function rootMenu(businessName = 'Tijarah Books'): string {
   const lines = ROOT_OPTIONS.map((o, i) => `${i + 1}.  ${o.label}`);
   return (
-    `*${businessName}*\nWhat would you like?\n\n${lines.join('\n')}\n\n` +
-    `_Reply 1, 2 or 3 — or just ask, e.g. "trial balance for July to September"._${TAGS.root}`
+    `Hello! This is *${businessName}*.\n\nWhat do you need?\n\n${lines.join('\n')}\n\n` +
+    `Just send 1, 2 or 3.\nOr type what you want, like _trial balance_.${TAGS.root}`
   );
 }
 
@@ -107,7 +107,10 @@ export function reportMenu(reports: MenuReport[]): string {
   const lines = orderReports(reports)
     .slice(0, 20)
     .map((r, i) => `${i + 1}.  ${r.displayName}`);
-  return `*Which report?*\n\n${lines.join('\n')}\n\n_Reply with a number or the name. 0 = back._${TAGS.reports}`;
+  return (
+    `Which report do you need?\n\n${lines.join('\n')}\n\n` +
+    `Send the number, or the name.\nSend 0 to go back.${TAGS.reports}`
+  );
 }
 
 /** Asked after a dated report is chosen, so a period is never silently "everything". */
@@ -131,13 +134,46 @@ export const PERIOD_OPTIONS = [
 export function periodMenu(displayName: string): string {
   const lines = PERIOD_OPTIONS.map((label, i) => `${i + 1}.  ${label}`);
   return (
-    `*${displayName}* — for which period?\n\n${lines.join('\n')}\n\n` +
-    `_Reply with a number, or type a period like "July to September". 0 = back._${TAGS.period}`
+    `*${displayName}* — for which dates?\n\n${lines.join('\n')}\n\n` +
+    `Send the number.\nOr type the dates, like _July to September_.\nSend 0 to go back.${TAGS.period}`
   );
 }
 
 export function datesPrompt(displayName: string): string {
-  return `${displayName} — send the dates as:\n\n*2026-07-01 to 2026-09-30*${TAGS.dates}`;
+  // The "name — ..." shape is load-bearing: stepFor reads the report back out of this text.
+  return `${displayName} — which dates?\n\nSend them like this:\n\n` + `*01-07-2026 to 30-09-2026*${TAGS.dates}`;
+}
+
+/**
+ * The shortlist a "I found a few people called X" question offered, or null.
+ *
+ * When two accounts match a name the bot lists them and asks for a number. That number is
+ * not a menu choice and not a report, so without reading the list back out of the question
+ * the person's answer goes nowhere — the same dead end a bare name hit.
+ */
+export function awaitedChoice(lastBotMessage: string | null): { ledger: string; names: string[] } | null {
+  if (!lastBotMessage) return null;
+  const isParty = /^I found a few people called/.test(lastBotMessage);
+  const isItem = /^I found a few items like/.test(lastBotMessage);
+  if (!isParty && !isItem) return null;
+  const names = [...lastBotMessage.matchAll(/^\d+\.\s+(.+)$/gm)].map(m => m[1].trim());
+  if (names.length === 0) return null;
+  return { ledger: isItem ? 'item_ledger' : 'party', names };
+}
+
+/**
+ * The ledger a "Which customer?" question was about, or null.
+ *
+ * RequestAccountingReport asks this when a party ledger names nobody. The answer is a bare
+ * name, which matches no menu step and no keyword, so without reading the question back the
+ * person is answered with "I did not understand that" and cannot get out of the loop.
+ */
+export function awaitedParty(lastBotMessage: string | null): string | null {
+  if (!lastBotMessage) return null;
+  if (/^Which customer\?/.test(lastBotMessage)) return 'customer_ledger';
+  if (/^Which supplier\?/.test(lastBotMessage)) return 'vendor_ledger';
+  if (/^Which expense account\?/.test(lastBotMessage)) return 'expense_ledger';
+  return null;
 }
 
 /** Which step a conversation is on, from the last thing the bot said. */
@@ -289,7 +325,16 @@ export function advance(
        */
       const typed = readDates(reply) ?? parsePeriod(reply, now);
       if (typed) return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to };
-      return { kind: 'show', text: periodMenu(report.displayName) };
+      /*
+       * Anything else is a NEW request, not a bad answer.
+       *
+       * Re-showing the question for every unrecognised reply trapped people: having opened
+       * the Trial Balance date menu, "customer ledger bhejo" and even a customer's name were
+       * answered with the same dates question again, forever. A person who has moved on has
+       * moved on, so this falls through to the reasoning — and a stray "x" lands on the
+       * ordinary "I did not understand" reply, which is the honest one.
+       */
+      return { kind: 'none' };
     }
     return { kind: 'report', documentType: report.documentType, from: period.from, to: period.to };
   }

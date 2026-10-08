@@ -89,7 +89,7 @@ describe('advance', () => {
   it('turns "1" at the root into the receivables period question', () => {
     const action = advance(root, '1', REPORTS, NOW);
     expect(action.kind).toBe('show');
-    expect(action.kind === 'show' && action.text).toContain('*Customer Ledger* — for which period?');
+    expect(action.kind === 'show' && action.text).toContain('*Customer Ledger* — for which dates?');
   });
 
   it('turns "2" at the root into the report list', () => {
@@ -124,7 +124,8 @@ describe('advance', () => {
   it('takes specific dates, asked for and then given', () => {
     const period = stepFor(periodMenu('Trial Balance'));
     const asked = advance(period, String(PERIOD_OPTIONS.length), REPORTS, NOW);
-    expect(asked.kind === 'show' && asked.text).toContain('2026-07-01 to 2026-09-30');
+    // The example is day-first, which is how Pakistan writes a date.
+    expect(asked.kind === 'show' && asked.text).toContain('01-07-2026 to 30-09-2026');
 
     const dates = stepFor(asked.kind === 'show' ? asked.text : '');
     expect(advance(dates, '2026-07-01 to 2026-09-30', REPORTS, NOW)).toEqual({
@@ -152,7 +153,7 @@ describe('advance', () => {
 
   it('goes back from the report list with 0', () => {
     const action = advance(reports, '0', REPORTS, NOW);
-    expect(action.kind === 'show' && action.text).toContain('What would you like');
+    expect(action.kind === 'show' && action.text).toContain('What do you need?');
   });
 
   it('never swallows a real request just because a menu is open', () => {
@@ -165,7 +166,7 @@ describe('advance', () => {
   it('takes the report name typed instead of its number', () => {
     // Answering "trial balance" to "Which report?" is as clear as answering "1".
     const action = advance(reports, 'trial balance', REPORTS, NOW);
-    expect(action.kind === 'show' && action.text).toContain('*Trial Balance* — for which period?');
+    expect(action.kind === 'show' && action.text).toContain('*Trial Balance* — for which dates?');
   });
 
   it('does not guess between reports that share a word', () => {
@@ -182,7 +183,7 @@ describe('advance', () => {
   it('goes back to the start from anywhere', () => {
     for (const word of ['back', 'menu', 'cancel']) {
       const action = advance(stepFor(periodMenu('Trial Balance')), word, REPORTS, NOW);
-      expect(action.kind === 'show' && action.text).toContain('What would you like');
+      expect(action.kind === 'show' && action.text).toContain('What do you need?');
     }
   });
 
@@ -225,7 +226,7 @@ describe('advance', () => {
 
   it('goes back one step from the duration question', () => {
     const action = advance(stepFor(periodMenu('Trial Balance')), '0', REPORTS, NOW);
-    expect(action.kind === 'show' && action.text).toContain('Which report?');
+    expect(action.kind === 'show' && action.text).toContain('Which report do you need?');
   });
 
   it('asks which document when the person chooses an invoice by number', () => {

@@ -29,6 +29,16 @@ export interface ReportRequestToolDeps {
   parties: () => KnownPartyService;
 }
 
+/**
+ * Whether the person asked for EVERY party rather than one.
+ *
+ * Said deliberately — "all", "sab", "everyone" — so the whole-book ledger stays reachable
+ * while the common case (one person, unnamed) is asked about instead of guessed.
+ */
+function wantsEveryone(partyName: string | undefined): boolean {
+  return /^\s*(all|sab|sabhi|everyone|every|complete|full|total)\s*$/i.test(partyName ?? '');
+}
+
 export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescriptor[] {
   return [
     defineTool({
@@ -74,8 +84,8 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
             found: 'none' as const,
             // Said plainly, because the next thing the person is asked for is the code.
             reason:
-              `I could not find a customer called "${input.name}" in your accounts. ` +
-              'Please check the spelling, or give the account code.',
+              `I could not find "${input.name}" in your accounts.\n\n` +
+              'Could you check the spelling? Or send me their account code instead.',
           };
         }
         if (match.kind === 'several') {
@@ -162,7 +172,7 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         if (!tenant) {
           return {
             queued: false,
-            reason: 'This number is not registered to a company, so there is nothing it can be shown.',
+            reason: 'This number is not set up with an account yet, so I cannot send anything to it.',
           };
         }
 
@@ -190,7 +200,7 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         const keyPart = (value: unknown): string => asText(value) ?? 'all';
 
         let resolvedType = type;
-        if (!parameters.partyCode && input.partyName?.trim()) {
+        if (!parameters.partyCode && input.partyName?.trim() && !wantsEveryone(input.partyName)) {
           const match = await deps.parties().find(tenant, input.partyName, input.documentType);
           if (match.kind === 'one' && match.party.lcode) {
             parameters.partyCode = match.party.lcode;
@@ -211,7 +221,10 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           } else if (match.kind === 'several') {
             return {
               queued: false,
-              reason: `More than one customer matches "${input.partyName}".`,
+              reason:
+                `I found a few people called "${input.partyName}". Which one?\n\n` +
+                match.parties.map((p, i) => `${i + 1}.  ${p.name}`).join('\n') +
+                '\n\nJust send the number.',
               customers: match.parties.map(p => ({ name: p.name, partyCode: p.lcode })),
             };
           } else {
@@ -219,9 +232,10 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
               queued: false,
               reason:
                 match.kind === 'one'
-                  ? `"${match.party.name}" is known, but their account code could not be confirmed. Please give the code.`
-                  : `I could not find a customer called "${input.partyName}" in your accounts. ` +
-                    'Please check the spelling, or give the account code.',
+                  ? `I found ${match.party.name}, but I could not confirm their account number. ` +
+                    'Could you send me their account code?'
+                  : `I could not find "${input.partyName}" in your accounts.\n\n` +
+                    'Could you check the spelling? Or send me their account code instead.',
             };
           }
         }
@@ -240,15 +254,42 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           } else if (item.kind === 'several') {
             return {
               queued: false,
-              reason: `More than one item matches "${input.itemName}".`,
+              reason:
+                `I found a few items like "${input.itemName}". Which one?\n\n` +
+                item.parties.map((p, i) => `${i + 1}.  ${p.name}`).join('\n') +
+                '\n\nJust send the number.',
               items: item.parties.map(p => ({ name: p.name, itemCode: p.lcode })),
             };
           } else {
             return {
               queued: false,
-              reason: `No item called "${input.itemName}" is in your stock list. Please check the name.`,
+              reason: `I could not find "${input.itemName}" in your items.\n\n` + 'Could you check the spelling?',
             };
           }
+        }
+
+        /*
+         * A party ledger with nobody named: ask who, rather than sending everyone.
+         *
+         * "Customer ledger bhejo" used to return every customer's ledger — pages of other
+         * people's balances to someone who almost always meant one person. Asking costs one
+         * message and is what a clerk would do. "All" still works, said deliberately.
+         */
+        const PARTY_LEDGERS: Record<string, string> = {
+          customer_ledger: 'customer',
+          vendor_ledger: 'supplier',
+          expense_ledger: 'expense account',
+        };
+        const who = PARTY_LEDGERS[resolvedType.documentType];
+        if (who && !parameters.partyCode && !wantsEveryone(input.partyName)) {
+          return {
+            queued: false,
+            needsParty: who,
+            reason:
+              `Which ${who}?\n\n` +
+              `Just send me the name — for example *${who === 'supplier' ? 'Zahid Traders' : 'Danyal'}*.\n` +
+              `Or send *all* to get every ${who}.`,
+          };
         }
 
         /*
