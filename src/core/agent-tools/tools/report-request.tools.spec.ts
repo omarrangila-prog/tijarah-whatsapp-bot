@@ -5,6 +5,9 @@ import type { ApiKey } from '../../../modules/auth/entities/api-key.entity';
 import type { KnownPartyService } from '../../../modules/whatsapp-jobs/tenancy/known-party.service';
 import type { BotUserService } from '../../../modules/whatsapp-jobs/tenancy/bot-user.service';
 
+/** A period, for the tests about something else: a report with none now asks for one. */
+const SEPT = { from: '2026-09-01', to: '2026-09-30' };
+
 /** A number with no company mapping. */
 const UNREGISTERED = '923000000000';
 
@@ -96,7 +99,7 @@ describe('RequestAccountingReport', () => {
 
   it('sends the whole ledger when *all* is the answer', async () => {
     const { request, created } = build();
-    await run(request, { senderPhone: '923001234567', documentType: 'item_ledger', itemName: 'all' });
+    await run(request, { senderPhone: '923001234567', ...SEPT, documentType: 'item_ledger', itemName: 'all' });
 
     expect(created).toHaveLength(1);
     expect(created[0].parameters).not.toHaveProperty('itemCode');
@@ -106,6 +109,7 @@ describe('RequestAccountingReport', () => {
     const { request, created } = build();
     const result = await run(request, {
       senderPhone: '923001234567',
+      ...SEPT,
       documentType: 'general_ledger',
       partyName: 'all',
     });
@@ -158,12 +162,47 @@ describe('RequestAccountingReport', () => {
     expect(created[0].parameters).toMatchObject({ from: '2026-01-01', to: '2026-06-30', companyId: '1006' });
   });
 
-  it('omits the period entirely when none is given, which the host reads as the full range', async () => {
+  it('asks which dates when none are given, instead of sending the whole period', async () => {
+    // The client asked for every detail to be asked — the customer, the item AND the dates.
     const { request, created } = build();
-    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'all' });
-    // The company is always present; the period is what is omitted, and the host reads a
-    // missing period as the full range.
-    expect(created[0].parameters).toEqual({ companyId: '1006', branch: 'GR', year: '2026' });
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      partyName: 'all',
+    });
+
+    expect(result.queued).toBe(false);
+    expect(String(result.reason)).toMatch(/^\*General Ledger\* — for which dates\?/);
+    // "all" was already the answer to "which account?", so the dates question says so.
+    expect(String(result.reason)).toContain('For: *everyone*');
+    expect(created).toHaveLength(0);
+  });
+
+  it('names the account already settled in the dates question, so "4" is still theirs', async () => {
+    const { request, parties } = build();
+    (parties.find as jest.Mock).mockResolvedValue({
+      kind: 'one',
+      party: { name: 'DANIYAL', phone: '', lcode: '0107059' },
+    });
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      partyName: 'daniyal',
+    });
+
+    expect(String(result.reason)).toContain('*Customer Ledger* — for which dates?');
+    expect(String(result.reason)).toContain('For: *DANIYAL* (0107059)');
+  });
+
+  it('never asks for dates on an invoice fetched by number', async () => {
+    const { request, created } = build();
+    await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      partyName: 'all',
+      documentNumber: '179',
+    });
+    expect(created).toHaveLength(1);
   });
 
   it('lists what can be asked for', async () => {
@@ -181,7 +220,7 @@ describe('RequestAccountingReport', () => {
 
   it("uses the asker's own company, not a default", async () => {
     const { request, created } = build();
-    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'all' });
+    await run(request, { senderPhone: '923001234567', ...SEPT, documentType: 'general_ledger', partyName: 'all' });
 
     /*
      * sid and grp are per-client. Two Tijarah businesses using this bot must not both be
@@ -239,7 +278,7 @@ describe('RequestAccountingReport', () => {
       party: { name: 'ZAHID TRADERS', phone: '923001112222', lcode: '0105001' },
     });
 
-    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'zahid' });
+    await run(request, { senderPhone: '923001234567', ...SEPT, documentType: 'general_ledger', partyName: 'zahid' });
 
     /*
      * Asking for a vendor by name and being handed the CUSTOMER ledger is a report about the
@@ -257,7 +296,7 @@ describe('RequestAccountingReport', () => {
     });
 
     // They said "customer ledger" explicitly; that is a decision, not a loose "ledger".
-    await run(request, { senderPhone: '923001234567', documentType: 'customer_ledger', partyName: 'zahid' });
+    await run(request, { senderPhone: '923001234567', ...SEPT, documentType: 'customer_ledger', partyName: 'zahid' });
 
     expect(created[0].documentType).toBe('customer_ledger');
   });
@@ -269,7 +308,7 @@ describe('RequestAccountingReport', () => {
       party: { name: 'PENASONIC ITEM #1', phone: '', lcode: '001001001' },
     });
 
-    await run(request, { senderPhone: '923001234567', documentType: 'item_ledger', itemName: 'penasonic' });
+    await run(request, { senderPhone: '923001234567', ...SEPT, documentType: 'item_ledger', itemName: 'penasonic' });
 
     expect(created[0].parameters).toMatchObject({ itemCode: '001001001' });
   });
@@ -316,7 +355,7 @@ describe('RequestAccountingReport', () => {
 
   it('says nothing when the same report is asked for twice in a minute', async () => {
     const { request } = build();
-    const args = { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'all' };
+    const args = { senderPhone: '923001234567', ...SEPT, documentType: 'general_ledger', partyName: 'all' };
     await run(request, args);
     const second = await run(request, args);
 
@@ -465,7 +504,12 @@ describe('RequestAccountingReport', () => {
       party: { name: 'FURNITURE', phone: '', lcode: '002001001' },
     });
 
-    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'furniture' });
+    await run(request, {
+      senderPhone: '923001234567',
+      ...SEPT,
+      documentType: 'general_ledger',
+      partyName: 'furniture',
+    });
 
     expect(created[0].documentType).toBe('item_ledger');
     expect(created[0].parameters).toMatchObject({ itemCode: '002001001' });

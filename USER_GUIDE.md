@@ -231,6 +231,8 @@ The PDF comes back in the same chat.
 is asked **"Which customer?"**, _"ledger"_ is asked **"Which account?"**, and the Item Ledger
 asks **"Which item?"**, rather than sending everyone's figures. Answer with the name, or send
 **all** for everyone. The other reports (trial balance, balance sheet and so on) need no name.
+Then, if the message had no dates, it asks **"for which dates?"** — the name already chosen is
+shown in that question (_For: DANIYAL (0107059)_), so replying _4_ still sends Daniyal's ledger.
 
 When a name fits more than one account — three accounts are all called _USMAN_ — the bot lists
 them with their account code (and phone, where there is one) and the client sends the number.
@@ -265,7 +267,10 @@ Tell your clients:
 - **Any account or item can be named** — _"Danyal's ledger"_, _"Sheglam ka item ledger"_ — straight
   from the client's own chart in Tijarah. If several match, it lists them (eight at most) and asks
   which one; if none does, it offers the closest names. It never guesses.
-- **No dates means the full period.** Say the dates for a shorter one.
+- **No dates? The bot asks.** Every report and ledger asks _"for which dates?"_ when the message
+  did not say — last 7/10/15/30 days, this month, this year, up to today, or their own dates
+  (_all time_ works too). Dates written in the message (_"trial balance last month"_) skip the
+  question. An invoice or voucher by number never asks for dates.
 - **They only ever get their own company's books,** and only to the number that asked.
 
 ### D. Clients creating documents for approval

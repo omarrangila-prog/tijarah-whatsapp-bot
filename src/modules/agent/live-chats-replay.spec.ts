@@ -6,8 +6,10 @@ import {
   awaitedPartyPeriod,
   documentNumberPrompt,
   isChitChat,
+  advance,
   MENU_TRIGGER,
   onlyAPeriod,
+  periodMenu,
   readDocumentNumber,
   rootMenu,
   shortlistLine,
@@ -143,6 +145,48 @@ describe('every ledger asks who or what first', () => {
     const intent = detectIntent('Ledger');
     expect(intent.kind === 'report' && intent.documentType).toBe('general_ledger');
     expect(intent.kind === 'report' && intent.partyName).toBeNull();
+  });
+});
+
+describe('the dates are asked for too', () => {
+  const REPORTS = [
+    { documentType: 'customer_ledger', displayName: 'Customer Ledger', datedByDefault: true },
+    { documentType: 'item_ledger', displayName: 'Item Ledger', datedByDefault: true },
+  ];
+
+  it('carries the customer through the dates question to the report', () => {
+    const asked = periodMenu('Customer Ledger', { kind: 'party', name: 'DANIYAL', code: '0107059' });
+    const step = stepFor(asked);
+    expect(step).toEqual({
+      kind: 'period',
+      documentType: 'Customer Ledger',
+      subject: { kind: 'party', name: 'DANIYAL', code: '0107059' },
+    });
+    expect(advance(step, '4', REPORTS, NOW)).toEqual({
+      kind: 'report',
+      documentType: 'customer_ledger',
+      from: '2026-09-08',
+      to: '2026-10-08',
+      subject: { kind: 'party', name: 'DANIYAL', code: '0107059' },
+    });
+  });
+
+  it('carries an item, and "everyone", the same way — through custom dates as well', () => {
+    const item = stepFor(periodMenu('Item Ledger', { kind: 'item', name: 'PENASONIC ITEM #1', code: '001001001' }));
+    const custom = advance(item, '8', REPORTS, NOW);
+    const dates = stepFor(custom.kind === 'show' ? custom.text : '');
+    expect(advance(dates, '01-07-2026 to 30-09-2026', REPORTS, NOW)).toMatchObject({
+      documentType: 'item_ledger',
+      from: '2026-07-01',
+      subject: { kind: 'item', code: '001001001' },
+    });
+    expect(stepFor(periodMenu('Customer Ledger', { kind: 'all' }))).toMatchObject({ subject: { kind: 'all' } });
+  });
+
+  it('takes "all time" as an answer to the dates question', () => {
+    expect(onlyAPeriod('all time')).toBe(true);
+    expect(parsePeriod('all time', NOW)).toEqual({ from: '2026-01-01', to: '2026-10-08' });
+    expect(parsePeriod('poora saal', NOW)).toEqual({ from: '2026-01-01', to: '2026-10-08' });
   });
 });
 

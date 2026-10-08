@@ -117,6 +117,17 @@ export function parsePeriod(text: string, now: Date = wallClock()): Period | nul
     return { from: iso(day(year, 0, 1)), to: iso(now) };
   }
   if (/\b(today|aaj)\b/i.test(lower)) return { from: iso(now), to: iso(now) };
+  /*
+   * "all time", "poora saal", "shuru se" — everything. The books are kept by the year, so that
+   * is the year so far; said in answer to "for which dates?", it must be read as one.
+   */
+  if (
+    /\b(all\s*time|full\s*(?:year|period)|whole\s*(?:year|period)|poor[ae]\s*sa+l|shuru\s*se|from\s*(?:the\s*)?start)\b/i.test(
+      lower,
+    )
+  ) {
+    return { from: iso(day(year, 0, 1)), to: iso(now) };
+  }
 
   // 2. "from 1 july to 1 oct", "1 jan - 31 mar 2026" — day and month either side.
   const dayMonth = new RegExp(

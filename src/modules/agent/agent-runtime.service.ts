@@ -442,6 +442,10 @@ export class AgentRuntime {
         name: 'RequestAccountingReport',
         input: {
           documentType: action.documentType,
+          // The account or item settled before the dates were asked, carried by the question.
+          ...(action.subject?.kind === 'party' ? { partyCode: action.subject.code } : {}),
+          ...(action.subject?.kind === 'item' ? { itemCode: action.subject.code } : {}),
+          ...(action.subject?.kind === 'all' ? { partyName: 'all' } : {}),
           ...(action.from ? { from: action.from } : {}),
           ...(action.to ? { to: action.to } : {}),
         },
@@ -499,7 +503,8 @@ export class AgentRuntime {
       {
         id: `party.${Date.now()}`,
         name: 'RequestAccountingReport',
-        input: partyCode ? { documentType, partyCode, ...dates } : { documentType, partyName, ...dates },
+        // With a code the name rides along only to be said back; the code is what is fetched.
+        input: partyCode ? { documentType, partyCode, partyName, ...dates } : { documentType, partyName, ...dates },
       },
       message,
       this.toolsFor(message.senderRole, false),
@@ -531,7 +536,7 @@ export class AgentRuntime {
         id: `item.${Date.now()}`,
         name: 'RequestAccountingReport',
         input: itemCode
-          ? { documentType: 'item_ledger', itemCode, ...dates }
+          ? { documentType: 'item_ledger', itemCode, itemName, ...dates }
           : { documentType: 'item_ledger', itemName, ...dates },
       },
       message,

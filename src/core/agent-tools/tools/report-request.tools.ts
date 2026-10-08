@@ -8,7 +8,7 @@ import { buildCaption } from '../../../modules/whatsapp-jobs/caption';
 import { accountKind, ledgerForKind } from '../../../modules/whatsapp-jobs/tenancy/account-kind';
 import type { BotUserService } from '../../../modules/whatsapp-jobs/tenancy/bot-user.service';
 import type { KnownPartyService } from '../../../modules/whatsapp-jobs/tenancy/known-party.service';
-import { documentNumberPrompt, shortlistLine } from '../../../modules/agent/client-menu';
+import { documentNumberPrompt, periodMenu, shortlistLine, type Subject } from '../../../modules/agent/client-menu';
 
 /**
  * Phase Two: asking for an accounting report in a WhatsApp conversation.
@@ -173,9 +173,10 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
     defineTool({
       name: 'RequestAccountingReport',
       description:
-        'Queue an accounting report to be sent back to the person asking, as a PDF. Dates are ' +
-        'optional — omitting them returns the full period. The report always goes to the ' +
-        'requesting number, never to anyone else. Requires OPERATOR.',
+        'Queue an accounting report to be sent back to the person asking, as a PDF. Pass the ' +
+        'dates the person gave; without them the person is asked which dates (and, for a ledger, ' +
+        'which account or item) — relay that question. The report always goes to the requesting ' +
+        'number, never to anyone else. Requires OPERATOR.',
       tier: 'write',
       requiredRole: ApiKeyRole.OPERATOR,
       senderScoped: true,
@@ -289,6 +290,14 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         const keyPart = (value: unknown): string => asText(value) ?? 'all';
 
         let resolvedType = type;
+        // The names the codes below were resolved from, to say back in a dates question.
+        // A code picked off a shortlist arrives with the name it was listed under.
+        let partyLabel: string | null =
+          input.partyCode?.trim() && input.partyName?.trim() && !wantsEveryone(input.partyName)
+            ? input.partyName
+            : null;
+        let itemLabel: string | null =
+          input.itemCode?.trim() && input.itemName?.trim() && !wantsEveryone(input.itemName) ? input.itemName : null;
         const itemLedger = allowed.find(t => t.documentType === 'item_ledger');
         // A name that matched no account, retried against the stock list below.
         let productName: string | null = null;
@@ -296,6 +305,7 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           const match = await deps.parties().find(tenant, input.partyName, input.documentType);
           if (match.kind === 'one' && match.party.lcode) {
             parameters.partyCode = match.party.lcode;
+            partyLabel = match.party.name;
             /*
              * Send the name to the ledger that actually answers for it.
              *
@@ -366,6 +376,7 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           const item = await deps.parties().findItem(tenant, itemName);
           if (item.kind === 'one' && item.party.lcode) {
             parameters.itemCode = item.party.lcode;
+            itemLabel = item.party.name;
           } else if (item.kind === 'several') {
             return {
               queued: false,
@@ -445,6 +456,27 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
                */
               periodNote(asText(parameters.from), asText(parameters.to)),
           };
+        }
+
+        /*
+         * And which dates. A report asked for with none used to arrive for the whole period,
+         * unasked; the client wants the bot to ask for every detail — customer, item and dates
+         * — before it sends anything. The account or item already settled is written into the
+         * question, so the answer "4" is still that account's ledger.
+         */
+        const dated = (resolvedType.optionalParameters ?? []).includes('from');
+        if (dated && !parameters.from && !parameters.to && !parameters.documentNumber) {
+          const clean = (text: string): string => text.replace(/[*\n]/g, ' ').trim();
+          const item = asText(parameters.itemCode);
+          const party = asText(parameters.partyCode);
+          const subject: Subject | undefined = item
+            ? { kind: 'item', name: clean(itemLabel ?? item), code: item }
+            : party
+              ? { kind: 'party', name: clean(partyLabel ?? party), code: party }
+              : ask && (wantsEveryone(input.partyName) || wantsEveryone(input.itemName))
+                ? { kind: 'all' }
+                : undefined;
+          return { queued: false, needsPeriod: true, reason: periodMenu(resolvedType.displayName, subject) };
         }
 
         /*

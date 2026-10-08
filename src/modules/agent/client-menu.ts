@@ -27,7 +27,7 @@ export interface MenuReport {
 /** What the caller should do once a reply has been read. */
 export type MenuAction =
   | { kind: 'show'; text: string }
-  | { kind: 'report'; documentType: string; from: string | null; to: string | null }
+  | { kind: 'report'; documentType: string; from: string | null; to: string | null; subject?: Subject }
   | { kind: 'document'; prompt: string }
   | { kind: 'none' };
 
@@ -35,8 +35,31 @@ export type MenuAction =
 export type MenuStep =
   | { kind: 'root' }
   | { kind: 'reports' }
-  | { kind: 'period'; documentType: string }
-  | { kind: 'dates'; documentType: string };
+  | { kind: 'period'; documentType: string; subject?: Subject }
+  | { kind: 'dates'; documentType: string; subject?: Subject };
+
+/**
+ * Who or what a dates question is about, when that was settled before the dates were asked.
+ *
+ * "Daniyal ka ledger" names the customer but no period, so the dates are asked next — and the
+ * answer "4" must still be DANIYAL's ledger. The question carries the account in a line of its
+ * own ("For: *DANIYAL* (0107059)"), which is read back when the dates arrive, the same way the
+ * report's name is.
+ */
+export type Subject = { kind: 'party' | 'item'; name: string; code: string } | { kind: 'all' };
+
+function subjectLine(subject: Subject | undefined): string {
+  if (!subject) return '';
+  if (subject.kind === 'all') return '\nFor: *everyone*';
+  return `\n${subject.kind === 'item' ? 'Item' : 'For'}: *${subject.name}* (${subject.code})`;
+}
+
+function subjectIn(message: string): Subject | undefined {
+  if (/\nFor: \*everyone\*/.test(message)) return { kind: 'all' };
+  const match = /\n(For|Item): \*([^*\n]+)\* \(([0-9A-Za-z-]+)\)/.exec(message);
+  if (!match) return undefined;
+  return { kind: match[1] === 'Item' ? 'item' : 'party', name: match[2], code: match[3] };
+}
 
 /**
  * A greeting or a bare "send", which opens the menu.
@@ -190,17 +213,20 @@ export const PERIOD_OPTIONS = [
   'Custom dates',
 ] as const;
 
-export function periodMenu(displayName: string): string {
+export function periodMenu(displayName: string, subject?: Subject): string {
   const lines = PERIOD_OPTIONS.map((label, i) => `${i + 1}.  ${label}`);
   return (
-    `*${displayName}* — for which dates?\n\n${lines.join('\n')}\n\n` +
+    `*${displayName}* — for which dates?${subjectLine(subject)}\n\n${lines.join('\n')}\n\n` +
     `Send the number.\nOr type the dates, like _July to September_.\nSend 0 to go back.${TAGS.period}`
   );
 }
 
-export function datesPrompt(displayName: string): string {
+export function datesPrompt(displayName: string, subject?: Subject): string {
   // The "name — ..." shape is load-bearing: stepFor reads the report back out of this text.
-  return `${displayName} — which dates?\n\nSend them like this:\n\n` + `*01-07-2026 to 30-09-2026*${TAGS.dates}`;
+  return (
+    `${displayName} — which dates?${subjectLine(subject)}\n\nSend them like this:\n\n` +
+    `*01-07-2026 to 30-09-2026*${TAGS.dates}`
+  );
 }
 
 /**
@@ -328,8 +354,11 @@ export function isChitChat(text: string): boolean {
 /** Which step a conversation is on, from the last thing the bot said. */
 export function stepFor(lastBotMessage: string | null): MenuStep | null {
   if (!lastBotMessage) return null;
-  if (tagged(lastBotMessage, 'dates')) return { kind: 'dates', documentType: documentTypeIn(lastBotMessage) };
-  if (tagged(lastBotMessage, 'period')) return { kind: 'period', documentType: documentTypeIn(lastBotMessage) };
+  const subject = subjectIn(lastBotMessage);
+  const about = subject ? { subject } : {};
+  if (tagged(lastBotMessage, 'dates')) return { kind: 'dates', documentType: documentTypeIn(lastBotMessage), ...about };
+  if (tagged(lastBotMessage, 'period'))
+    return { kind: 'period', documentType: documentTypeIn(lastBotMessage), ...about };
   if (tagged(lastBotMessage, 'reports')) return { kind: 'reports' };
   if (tagged(lastBotMessage, 'root')) return { kind: 'root' };
   return null;
@@ -469,7 +498,7 @@ export function advance(
     if (!report) return { kind: 'show', text: reportMenu(reports) };
     if (choice === 0) return { kind: 'show', text: reportMenu(reports) };
     // 8 is the custom range in PERIOD_OPTIONS: a prompt for two dates, not a period itself.
-    if (choice === PERIOD_OPTIONS.length) return { kind: 'show', text: datesPrompt(report.displayName) };
+    if (choice === PERIOD_OPTIONS.length) return { kind: 'show', text: datesPrompt(report.displayName, step.subject) };
     const period = choice === null ? null : periodFor(choice, now);
     if (!period) {
       /*
@@ -478,7 +507,9 @@ export function advance(
        * work here too rather than only the two forms this menu happens to print.
        */
       const typed = onlyAPeriod(reply) ? (readDates(reply) ?? parsePeriod(reply, now)) : null;
-      if (typed) return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to };
+      if (typed) {
+        return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to, ...about(step) };
+      }
       /*
        * Anything else is a NEW request, not a bad answer.
        *
@@ -490,7 +521,7 @@ export function advance(
        */
       return { kind: 'none' };
     }
-    return { kind: 'report', documentType: report.documentType, from: period.from, to: period.to };
+    return { kind: 'report', documentType: report.documentType, from: period.from, to: period.to, ...about(step) };
   }
 
   // step.kind === 'dates'
@@ -502,8 +533,13 @@ export function advance(
    * example exactly was shown the same prompt again, forever.
    */
   const typed = readDates(reply) ?? parsePeriod(reply, now);
-  if (!typed) return { kind: 'show', text: datesPrompt(report.displayName) };
-  return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to };
+  if (!typed) return { kind: 'show', text: datesPrompt(report.displayName, step.subject) };
+  return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to, ...about(step) };
+}
+
+/** The subject a step carried, for the report it becomes — absent when there was none. */
+function about(step: { subject?: Subject }): { subject?: Subject } {
+  return step.subject ? { subject: step.subject } : {};
 }
 
 /**
@@ -522,6 +558,14 @@ const PERIOD_WORDS = new RegExp(
       'previous',
       'pichle',
       'pichhle',
+      'all',
+      'time',
+      'full',
+      'whole',
+      'poora',
+      'poore',
+      'shuru',
+      'start',
       'this',
       'current',
       'is',
