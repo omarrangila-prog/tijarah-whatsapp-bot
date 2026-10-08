@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import { DocumentDraft } from './document-draft.entity';
 import { DraftService, coerceDate } from './draft.service';
+import { businessToday } from '../../../common/utils/wall-clock';
 import { findRequestSpec, hostRequestTypes, submittableRequests } from './tijarah-request';
 import { MockApprovalSubmissionAdapter, toSubmissionPayload } from './approval-submission.port';
 import { CREATABLE_TYPES } from './draft-schema';
@@ -50,6 +51,23 @@ describe('document drafts', () => {
         'Item Account',
       ]),
     );
+  });
+
+  it('drops the field\u2019s own label from an answer — "supplier = abdul rafay" is abdul rafay', async () => {
+    await service.start(OWNER, 'create_purchase_invoice');
+    const named = await service.setField(OWNER, 'partyName', 'supplier = abdul rafay');
+    expect(named.message).toBe('Customer/Supplier: abdul rafay');
+    // Without a separator the words are the name: a business may be called "Customer Care".
+    const kept = await service.setField(OWNER, 'partyName', 'Customer Care');
+    expect(kept.message).toBe('Customer/Supplier: Customer Care');
+  });
+
+  it('says how to answer, and how to leave, when a date cannot be read', async () => {
+    await service.start(OWNER, 'create_sale_invoice');
+    const refused = await service.setField(OWNER, 'date', 'C-1005');
+    expect(refused.ok).toBe(false);
+    expect(refused.message).toContain('like 01-10-2026');
+    expect(refused.message).toContain('*cancel*');
   });
 
   it('walks through the fields it needs, one at a time', async () => {
@@ -224,7 +242,8 @@ describe('document drafts', () => {
 
 describe('dates as people write them', () => {
   it('accepts a restated label, because a person answering "Date?" repeats the word', () => {
-    const today = new Date().toISOString().slice(0, 10);
+    // Karachi's date, not UTC's: the two differ from midnight to 5 a.m. local time.
+    const today = businessToday();
     expect(coerceDate('date is today')).toBe(today);
     expect(coerceDate('Date: today')).toBe(today);
     expect(coerceDate('dated 2026-09-12')).toBe('2026-09-12');

@@ -185,16 +185,22 @@ There are two ways, and both work.
 **The menu.** A client sends **menu** (or hi, hello, salam) and gets numbered options:
 
 ```
-What would you like from Tijarah Books?
+Hello! This is Tijarah Books.
 
-1. Receivables — who owes me
-2. A report (trial balance, balance sheet…)
-3. An invoice or voucher by number
+What do you need?
+
+1. Who owes me money
+2. Send me a report
+3. Get an invoice or voucher
 ```
 
-They reply with a number, pick a report from the list, then pick a period — this month, last
-month, this year, everything, or specific dates. The PDF arrives. **This works even if no AI is
-configured**, so it is the route that never fails.
+They reply with a number, pick a report from the list, then pick a period — last 7, 10, 15 or
+30 days, this month, this year, up to today, or their own dates. The PDF arrives. **This works
+even if no AI is configured**, so it is the route that never fails.
+
+- **1 — Who owes me money** sends the customer ledger for **every** customer, for the period
+  they pick.
+- **3 — Get an invoice or voucher** asks for the type and number, e.g. _sale invoice 179_.
 
 **Or just ask**, in ordinary words:
 
@@ -225,6 +231,14 @@ For the four in bold the bot asks who or what before sending — a client who sa
 _"customer ledger bhejo"_ is asked **"Which customer?"** rather than being sent every
 customer's balances. Answer with the name, or send **all** for everyone.
 
+When a name fits more than one account — three accounts are all called _USMAN_ — the bot lists
+them with their account code (and phone, where there is one) and the client sends the number.
+When a name fits nothing, it offers the closest names instead: _"khuzema ahmed"_ →
+_"Did you mean KHUZEMA TRADEVIVE?"_. Any dates asked for stay with the choice.
+
+_"Last 30 days ki invoice"_ or _"January sales invoice"_ — invoices for a period, with no number —
+sends the **sales book** for that period (purchase invoices: the purchase book).
+
 **The 7 documents, asked for by number**
 
 Sale Invoice · Purchase Invoice · Digital Invoice · Sale Return · Purchase Return ·
@@ -246,9 +260,9 @@ arrive on their own whenever Tijarah Books queues one.
 
 Tell your clients:
 
-- **A customer can be named** — _"Danyal's ledger"_ — once a document has been sent to them
-  before, which is how the bot learns the name. Otherwise it asks for the account code
-  (e.g. `C-1005`). If two customers match the name, it asks which one rather than guessing.
+- **Any account or item can be named** — _"Danyal's ledger"_, _"Sheglam ka item ledger"_ — straight
+  from the client's own chart in Tijarah. If several match, it lists them (eight at most) and asks
+  which one; if none does, it offers the closest names. It never guesses.
 - **No dates means the full period.** Say the dates for a shorter one.
 - **They only ever get their own company's books,** and only to the number that asked.
 
@@ -259,6 +273,9 @@ A client can start a new document in chat, for example:
 > _"Create a sale invoice for Ahmed Traders, 10 shirts at 1500"_
 
 1. The bot asks for anything missing — date, items, quantities, prices — one question at a time.
+   Several lines can be sent in one message (one per line, or _"10 led bulb at 20000 30 normal
+   bulb at 500"_); a line with no price is asked about. Dates are written the usual way —
+   _01-10-2026_, _1 Oct_, or _today_.
 2. When nothing is missing it says _"Ready"_. The client can reply **review** to read it all back
    with the total, **submit** to send it for approval, or **cancel** to drop it.
 3. On **submit** it goes to the **approval screen in Tijarah Books** as **pending**. The client is

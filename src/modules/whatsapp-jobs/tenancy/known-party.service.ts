@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KnownParty } from './known-party.entity';
-import { matchParty, type PartyCandidate, type PartyMatch } from './party-match';
+import { matchParty, normaliseName, type PartyCandidate, type PartyMatch } from './party-match';
 import { actHeadForLedger } from './account-kind';
 import { normalizeWhatsAppNumber } from '../providers/whatsapp-delivery.provider';
 // A VALUE import, not `import type`: Nest reads the constructor's emitted design:paramtypes to
@@ -111,6 +111,34 @@ export class KnownPartyService {
     );
   }
 
+  /**
+   * Near names for one that matched nothing: accounts (or items) sharing any whole word with
+   * what was typed. "khuzema ahmed" found nobody — the account is KHUZEMA TRADEVIVE — and a
+   * flat "could not find" left the person guessing. A shortlist to choose from is never a
+   * guess: nothing is sent until they pick one.
+   */
+  async suggest(
+    tenant: TenantContext,
+    query: string,
+    documentType: string,
+    kind: 'party' | 'item',
+  ): Promise<PartyCandidate[]> {
+    const words = normaliseName(query)
+      .split(' ')
+      .filter(word => word.length >= 3 && !/^(bhai|sahab|sahib|saab|ledger|item|items|product|account)$/.test(word));
+    if (!words.length) return [];
+    const pool =
+      kind === 'item'
+        ? (await this.users.fetchItems(tenant)).map(i => ({ name: i.name.trim(), phone: '', lcode: i.icode }))
+        : await this.hostCandidates(tenant, documentType);
+    return pool
+      .filter(candidate => {
+        const name = normaliseName(candidate.name).split(' ');
+        return words.some(word => name.includes(word));
+      })
+      .slice(0, 5);
+  }
+
   /** Every customer known in this company's books. */
   async list(tenant: Pick<TenantContext, 'sid' | 'grp'>): Promise<PartyCandidate[]> {
     const rows = await this.parties.find({
@@ -130,6 +158,26 @@ export class KnownPartyService {
    * mean sending one customer's ledger under another's name.
    */
   async find(tenant: TenantContext, query: string, documentType = 'general_ledger'): Promise<PartyMatch> {
+    /*
+     * As typed first, then without the courtesy words. "daniyal bhai ka ledger" found nobody:
+     * every word typed has to be in the account's name, and "bhai" is respect, not the name.
+     * Tried second, not first, because some accounts DO carry it — "DANYAL BHAI - (KAUSAR
+     * INNOVATIONS)" is a real one — and as typed is the better match whenever it exists.
+     */
+    const asTyped = await this.findOnce(tenant, query, documentType);
+    if (asTyped.kind !== 'none') return asTyped;
+    const plain = query
+      .split(/\s+/)
+      .filter(
+        word =>
+          !/^(bhai|bhae|bhaijaan|sahab|sahib|saab|sb|ji|jee|mr|mrs|ms|miss|uncle|baji|janab|seth|sir)$/i.test(word),
+      )
+      .join(' ')
+      .trim();
+    return plain && plain !== query.trim() ? this.findOnce(tenant, plain, documentType) : asTyped;
+  }
+
+  private async findOnce(tenant: TenantContext, query: string, documentType: string): Promise<PartyMatch> {
     /*
      * The host's own chart is searched FIRST, because it is the authority on who exists.
      *

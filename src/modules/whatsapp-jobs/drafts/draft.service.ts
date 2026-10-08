@@ -6,6 +6,7 @@ import { DocumentDraft } from './document-draft.entity';
 import { creatableTypes, findCreatableType, type DraftFieldSpec, type DraftLineItem } from './draft-schema';
 import { APPROVAL_SUBMISSION_PORT, type ApprovalSubmissionPort } from './approval-submission.port';
 import { normalizeWhatsAppNumber } from '../providers/whatsapp-delivery.provider';
+import { wallClock } from '../../../common/utils/wall-clock';
 
 export interface DraftOutcome {
   ok: boolean;
@@ -172,12 +173,27 @@ export class DraftService {
       return { ok: false, draft: open, message: `${open.displayName} has no field called "${name}".` };
     }
 
-    const cleaned = this.coerce(field, value);
+    /*
+     * "supplier = abdul rafay", "Customer: Ahmed Traders" — the field's own name restated in
+     * the answer, which became part of the name sent to the approval screen. Only with a
+     * separator, so a business genuinely called "Customer Care" keeps its name.
+     */
+    const answer = ['partyName', 'fromName', 'toName', 'name'].includes(field.name)
+      ? value
+          .replace(/^\s*(?:the\s+)?(?:customer|supplier|vendor|party|client)(?:\s+name)?\s*(?:=|:|-|\bis\b)\s*/i, '')
+          .trim() || value
+      : value;
+    const cleaned = this.coerce(field, answer);
     if (cleaned === null) {
       return {
         ok: false,
         draft: open,
-        message: `"${value}" is not a valid ${field.label.toLowerCase()}.`,
+        // What to send instead, and how to leave — "is not a valid date" alone left a person
+        // who had typed "Report" with no idea what was wanted or how to get out.
+        message:
+          `"${value}" is not a ${field.label.toLowerCase()} I can use.` +
+          (field.hint ? ` Send it ${field.hint}.` : '') +
+          `\n\nOr say *cancel* to drop this ${open.displayName}.`,
         nextField: field,
       };
     }
@@ -209,8 +225,10 @@ export class DraftService {
         ok: false,
         draft: open,
         message: spec?.hasLineItems
-          ? 'Nothing is waiting on an answer. Add a line like "250 cotton fabric at 600", or say submit.'
-          : 'Nothing is waiting on an answer. Say review, or submit.',
+          ? `${open.displayName} ${open.reference} ` +
+            ((open.lineItems ?? []).length ? 'is ready. Add another line' : 'needs its lines. Add one') +
+            ' like "250 cotton fabric at 600", say *submit* to send it, or *cancel* to drop it.'
+          : `${open.displayName} ${open.reference} is complete. Say *submit* to send it, or *cancel* to drop it.`,
       };
     }
     return this.setField(phone, pending.name, value);
@@ -399,17 +417,38 @@ export class DraftService {
 /**
  * A date as a person types it in a message.
  *
- * Three things it handles that `new Date()` alone does not:
+ * What it handles that `new Date()` alone does not:
  *
  *  - A restated label. Someone answering "Date?" writes "date is today", and a model relaying
  *    that answer passes the whole phrase through. Rejecting it teaches nobody anything.
- *  - "today" / "aaj", the two words actually used here.
+ *  - "today" / "aaj", the two words actually used here — in KARACHI's calendar, not the
+ *    server's: in UTC, "today" was still yesterday until 5 a.m. local time.
  *  - **Day-first slash and dash forms.** `new Date('12/09/2026')` is 9 December by American
  *    convention; in Pakistan that is written for 12 September. Getting this wrong misdates an
  *    invoice by months and nothing downstream would question it, so these forms are parsed
  *    day-first explicitly rather than handed to the engine's default.
+ *  - Month names: "01-Oct-2026", "1 oct", "October 1, 2026".
+ *
+ * And what it no longer does: hand anything else to `new Date()`. That fallback accepted
+ * "C-1005" — a customer code typed at the date question — as the year 1005, and read
+ * "01-Oct-2026" in the server's own time zone, a day early wherever that is east of UTC.
  */
-export function coerceDate(raw: string): string | null {
+const MONTH_INDEX: Readonly<Record<string, number>> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+};
+
+export function coerceDate(raw: string, now: Date = new Date()): string | null {
   // "Date is 12/09/2026", "date: today", "dated 2026-09-12" — the label, restated.
   const value = String(raw ?? '')
     .trim()
@@ -417,23 +456,44 @@ export function coerceDate(raw: string): string | null {
     .trim();
   if (!value) return null;
 
-  if (/^(today|aaj|aj)$/i.test(value)) return new Date().toISOString().slice(0, 10);
-  if (/^(yesterday|kal)$/i.test(value)) {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().slice(0, 10);
+  const today = wallClock(now);
+  const isoOf = (date: Date): string => date.toISOString().slice(0, 10);
+  if (/^(today|aaj|aj)$/i.test(value)) return isoOf(today);
+  if (/^(yesterday|kal)$/i.test(value)) return isoOf(new Date(today.getTime() - 86_400_000));
+
+  /** A real calendar day in a plausible year, or null — 31/02 is refused, not rolled on. */
+  const valid = (year: number, month: number, day: number): string | null => {
+    if (year < 2000 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? isoOf(date) : null;
+  };
+
+  // Year first: 2026-10-01, 2026/10/01, "2026 10 01".
+  let match = /^(\d{4})[\s/.-](\d{1,2})[\s/.-](\d{1,2})$/.exec(value);
+  if (match) return valid(Number(match[1]), Number(match[2]), Number(match[3]));
+
+  // Day first: 01-10-2026, 1/10/2026, "01 10 2026".
+  match = /^(\d{1,2})[\s/.-](\d{1,2})[\s/.-](\d{4})$/.exec(value);
+  if (match) return valid(Number(match[3]), Number(match[2]), Number(match[1]));
+
+  // A month by name, day before it: "01-Oct-2026", "1st October", "1 oct 2026".
+  const months = Object.keys(MONTH_INDEX).join('|');
+  match = new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?[\\s/.-]*(${months})[a-z]*\\.?(?:[\\s/.,-]*(\\d{4}))?$`, 'i').exec(
+    value,
+  );
+  if (match) {
+    const year = match[3] ? Number(match[3]) : today.getUTCFullYear();
+    return valid(year, MONTH_INDEX[match[2].toLowerCase()] + 1, Number(match[1]));
   }
 
-  const dayFirst = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/.exec(value);
-  if (dayFirst) {
-    const [, day, month, year] = dayFirst;
-    const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-    // Rejects 31/02: the engine would roll it into March rather than say no.
-    const parsed = new Date(`${iso}T00:00:00Z`);
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
+  // A month by name, day after it: "Oct 1 2026", "October 1st, 2026".
+  match = new RegExp(`^(${months})[a-z]*\\.?[\\s/.-]*(\\d{1,2})(?:st|nd|rd|th)?(?:[\\s,/.-]*(\\d{4}))?$`, 'i').exec(
+    value,
+  );
+  if (match) {
+    const year = match[3] ? Number(match[3]) : today.getUTCFullYear();
+    return valid(year, MONTH_INDEX[match[1].toLowerCase()] + 1, Number(match[2]));
   }
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  return null;
 }

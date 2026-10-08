@@ -149,31 +149,64 @@ export function draftTools(deps: DraftToolDeps): AnyToolDescriptor[] {
 
     defineTool({
       name: 'AddDraftLineItem',
-      description: 'Add one line to the invoice being composed: what it is, how many, and the rate.',
+      description:
+        'Add lines to the invoice being composed: what it is, how many, and the rate. One line in ' +
+        'description/quantity/rate, or several at once in `lines` when the person sent a list.',
       tier: 'write',
       requiredRole: ApiKeyRole.OPERATOR,
       senderScoped: true,
       inputSchema: z.object({
         senderPhone,
-        description: z.string().min(1).max(200),
+        description: z.string().min(1).max(200).optional(),
         quantity: z.string().max(20).optional(),
         rate: z.string().max(20).optional(),
+        /*
+         * Several lines from one message. "1. 250 cotton fabric at 600 / 2. led bulb 300pcs /
+         * 3. iphone 5box" was sent as one message and answered "Nothing is waiting on an
+         * answer" — none of the three was added.
+         */
+        lines: z
+          .array(
+            z.object({
+              description: z.string().min(1).max(200),
+              quantity: z.string().max(20),
+              rate: z.string().max(20),
+            }),
+          )
+          .max(30)
+          .optional(),
+        // Lines from the same message that came without a price, named back so none is lost.
+        unpriced: z.array(z.string().max(200)).max(30).optional(),
       }),
       handler: async input => {
-        const result = await deps.drafts().addLineItem(input.senderPhone, {
-          description: input.description,
-          quantity: input.quantity ?? '1',
-          rate: input.rate ?? '0',
-        });
-        const ready = result.draft ? deps.drafts().isComplete(result.draft) : false;
-        const review = result.draft ? deps.drafts().review(result.draft) : null;
+        const wanted = [
+          ...(input.description
+            ? [{ description: input.description, quantity: input.quantity ?? '1', rate: input.rate ?? '0' }]
+            : []),
+          ...(input.lines ?? []),
+        ];
+        if (wanted.length === 0) return { added: false, readyToSubmit: false, summary: 'A line needs a description.' };
+        const said: string[] = [];
+        let last = null as Awaited<ReturnType<ReturnType<typeof deps.drafts>['addLineItem']>> | null;
+        for (const line of wanted) {
+          last = await deps.drafts().addLineItem(input.senderPhone, line);
+          said.push(last.message);
+          if (!last.ok) break;
+        }
+        const ready = last?.draft ? deps.drafts().isComplete(last.draft) : false;
+        const review = last?.draft ? deps.drafts().review(last.draft) : null;
+        const unpriced = input.unpriced ?? [];
         return {
-          added: result.ok,
+          added: last?.ok ?? false,
           readyToSubmit: ready,
           summary:
-            `${result.message}` +
+            said.join('\n') +
             (review ? `\nRunning total: ${String(review.total)}` : '') +
-            (ready ? '\n\nAdd another line, or say *submit* to send it for approval.' : ''),
+            (unpriced.length
+              ? `\n\nStill need a price for: ${unpriced.join(', ')}.\nSend it like this: _${unpriced[0]} at 600_`
+              : ready
+                ? '\n\nAdd another line, or say *submit* to send it for approval.'
+                : ''),
         };
       },
     }),
@@ -248,6 +281,8 @@ export function draftTools(deps: DraftToolDeps): AnyToolDescriptor[] {
          */
         const existing = await drafts.openDraftFor(input.senderPhone);
         if (existing) await drafts.cancel(input.senderPhone);
+        // Said back to the person: an unfinished document silently dropped is a surprise later.
+        const replaced = existing ? `${existing.displayName} ${existing.reference}` : undefined;
 
         const started = await drafts.start(input.senderPhone, input.documentType);
         if (!started.ok) return { composed: false, message: started.message };
@@ -273,6 +308,7 @@ export function draftTools(deps: DraftToolDeps): AnyToolDescriptor[] {
         return {
           composed: true,
           reference: draft.reference,
+          replaced,
           ...review,
           rejected: rejected.length ? rejected : undefined,
           next: review.readyToSubmit

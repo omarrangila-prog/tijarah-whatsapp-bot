@@ -57,6 +57,8 @@ export interface ReasoningRequest {
      * unrecognised instruction, and answers the help text instead.
      */
     hasOpenDraft?: boolean;
+    /** That draft in a sentence — what it is and what it still needs — for a reminder. */
+    openDraftSummary?: string | null;
   };
 }
 

@@ -63,7 +63,8 @@ const REQUIRED: Readonly<Record<string, ReadonlyArray<keyof CollectedFields>>> =
 };
 
 const HINTS: Readonly<Partial<Record<keyof CollectedFields, string>>> = {
-  date: 'YYYY-MM-DD, or "today"',
+  // Day-first, the way dates are written here; the ISO form is still accepted.
+  date: 'like 01-10-2026, or "today"',
   partyCode: 'Leave as NEW if the account does not exist yet',
   code: 'Leave as NEW if it does not exist yet',
   uom: 'e.g. PCS, KG, METER',

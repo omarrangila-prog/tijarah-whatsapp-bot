@@ -113,3 +113,61 @@ describe('KnownPartyService', () => {
     await ds.initialize();
   });
 });
+
+/**
+ * The real 1006 / 1042 charts, as names clients typed against them on 8 October.
+ */
+describe('KnownPartyService against the host chart', () => {
+  let ds: DataSource;
+  const tenant: TenantContext = { whatsAppNo: '923347037531', sid: 1006, grp: 'GR', aYear: '2026', displayName: null };
+  const chart = [
+    { lcode: '0107059', name: 'DANIYAL', telNo: '-', email: '-' },
+    { lcode: '0104012', name: 'DANIYAL BHAI', telNo: '-', email: '-' },
+    { lcode: '0107160', name: 'DANIYAL BHAI', telNo: '-', email: '-' },
+    { lcode: '0107015', name: 'DANYAL BHAI - (KAUSAR INNOVATIONS)', telNo: '03313687287', email: '-' },
+    { lcode: '0106015', name: 'KHUZEMA TRADEVIVE', telNo: '-', email: '-' },
+    { lcode: '0107028', name: 'AHMED', telNo: '-', email: '-' },
+  ];
+  const items = [{ icode: '001006101', name: 'Sheglam It-Curl Thermal Blowout Brush - 32mm' }];
+
+  const build = async (): Promise<KnownPartyService> => {
+    ds = new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [KnownParty], synchronize: true });
+    await ds.initialize();
+    const users = {
+      fetchAccounts: () => Promise.resolve(chart),
+      fetchItems: () => Promise.resolve(items),
+      findByPhone: () => Promise.resolve([]),
+    } as unknown as BotUserService;
+    return new KnownPartyService(ds.getRepository(KnownParty), users);
+  };
+
+  afterEach(async () => {
+    await ds.destroy();
+  });
+
+  it('matches the name as typed first, honorific and all', async () => {
+    // "DANYAL BHAI" is a real account name, so "bhai" is not stripped while it matches.
+    const service = await build();
+    expect(await service.find(tenant, 'danyal bhai')).toMatchObject({ kind: 'one', party: { lcode: '0107015' } });
+    expect((await service.find(tenant, 'daniyal bhai')).kind).toBe('several');
+  });
+
+  it('retries without "bhai", "sahab" and the like when the full name finds nobody', async () => {
+    const service = await build();
+    expect(await service.find(tenant, 'ahmed sahab')).toMatchObject({ kind: 'one', party: { lcode: '0107028' } });
+  });
+
+  it('suggests names sharing a word with one that matched nothing', async () => {
+    const service = await build();
+    expect(await service.find(tenant, 'khuzema ahmed')).toEqual({ kind: 'none' });
+    const near = await service.suggest(tenant, 'khuzema ahmed', 'general_ledger', 'party');
+    expect(near.map(p => p.lcode)).toEqual(['0106015', '0107028']);
+    const products = await service.suggest(tenant, 'sheglam comb', 'item_ledger', 'item');
+    expect(products.map(p => p.lcode)).toEqual(['001006101']);
+  });
+
+  it('suggests nothing for words too short or too generic to mean anything', async () => {
+    const service = await build();
+    expect(await service.suggest(tenant, 'ka ledger', 'general_ledger', 'party')).toEqual([]);
+  });
+});

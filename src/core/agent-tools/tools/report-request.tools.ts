@@ -8,6 +8,7 @@ import { buildCaption } from '../../../modules/whatsapp-jobs/caption';
 import { accountKind, ledgerForKind } from '../../../modules/whatsapp-jobs/tenancy/account-kind';
 import type { BotUserService } from '../../../modules/whatsapp-jobs/tenancy/bot-user.service';
 import type { KnownPartyService } from '../../../modules/whatsapp-jobs/tenancy/known-party.service';
+import { documentNumberPrompt, shortlistLine } from '../../../modules/agent/client-menu';
 
 /**
  * Phase Two: asking for an accounting report in a WhatsApp conversation.
@@ -18,10 +19,66 @@ import type { KnownPartyService } from '../../../modules/whatsapp-jobs/tenancy/k
  * overwrites the recipient with the verified sender before the handler runs, so no wording —
  * "send the ledger to 0300…" — can redirect it.
  *
- * Only types marked `chatRequestable` are reachable, which is reports and not invoices. An
- * invoice belongs to a named customer and needs a document number; "send me invoice 104" from
- * anyone on the allowlist is how one customer's invoice reaches another.
+ * Only types marked `chatRequestable` are reachable. Since 8 October that includes the seven
+ * invoices and vouchers, fetched by number: the company is always the ASKING number's own, so
+ * "sale invoice 179" can only ever address that client's own books. Which is why only
+ * businesses and their staff are registered, never their customers.
  */
+
+/** "\n\nDates: 08-09-2026 to 08-10-2026" for a question that has dates riding on it, or nothing. */
+function periodNote(from: string | null, to: string | null): string {
+  if (!from || !to) return '';
+  const dmy = (isoDate: string): string => isoDate.split('-').reverse().join('-');
+  return `\n\nDates: ${dmy(from)} to ${dmy(to)}`;
+}
+
+/**
+ * At most eight choices, and how many were left off.
+ *
+ * Fama Originals has 69 items with "Sheglam" in the name. Listing every one made a reply past
+ * the size the runtime passes on, it was cut mid-JSON, and the client was sent the raw text
+ * of a tool result. Eight is what a phone screen shows; more of the name narrows it.
+ */
+const SHORTLIST_MAX = 8;
+function more(total: number, what: string): string {
+  return total > SHORTLIST_MAX
+    ? `\n…and ${total - SHORTLIST_MAX} more. Send more of the ${what}, so I can find the right one.`
+    : '';
+}
+
+/**
+ * "I could not find X. Did you mean one of these?" — read back by the menu like any shortlist,
+ * so the number picked resolves to the code beside it.
+ */
+function didYouMean(
+  typed: string,
+  near: Array<{ name: string; phone: string; lcode: string | null; item?: boolean }>,
+  from: string | null,
+  to: string | null,
+): { queued: false; reason: string } {
+  return {
+    queued: false,
+    reason:
+      `I could not find "${typed}". Did you mean one of these?\n\n` +
+      near
+        // "— item" marks a product, so a pick of it reaches the item ledger, not an account's.
+        .map(
+          (p, i) =>
+            `${i + 1}.  ${p.name}${p.item ? ' — item' : (readablePhone(p.phone) ?? '').replace(/^(.)/, ' — $1')}${p.lcode ? ` (${p.lcode})` : ''}`,
+        )
+        .join('\n') +
+      '\n\nJust send the number. Or check the spelling and send it again.' +
+      periodNote(from, to),
+  };
+}
+
+/** A stored number as a person reads it: 923211111111 → 0321 1111111. */
+function readablePhone(phone: string | null | undefined): string | null {
+  const digits = (phone ?? '').replace(/\D/g, '');
+  if (digits.length < 7) return null;
+  const local = digits.startsWith('92') && digits.length === 12 ? `0${digits.slice(2)}` : digits;
+  return local.length === 11 ? `${local.slice(0, 4)} ${local.slice(4)}` : local;
+}
 
 export interface ReportRequestToolDeps {
   jobs: () => WhatsAppJobsService;
@@ -55,6 +112,9 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           reports: types.map(t => ({
             documentType: t.documentType,
             name: t.displayName,
+            // `documentNumber` here marks an invoice or voucher rather than a report: the menu
+            // keeps those off its report list, where choosing one could only fail.
+            requiredParameters: t.requiredParameters ?? [],
             optionalParameters: t.optionalParameters ?? [],
           })),
         };
@@ -134,6 +194,11 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           .max(190)
           .optional()
           .describe('For the item ledger: an item named rather than coded, e.g. "Blue Shirt".'),
+        itemCode: z
+          .string()
+          .max(40)
+          .optional()
+          .describe('For the item ledger: an item code picked off a shortlist. Prefer itemName.'),
         documentNumber: z
           .string()
           .max(40)
@@ -181,6 +246,17 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           };
         }
 
+        /*
+         * An invoice or voucher with no number: ask for it.
+         *
+         * Choosing "Sale Invoice" off a list used to queue a fetch with no number, which could
+         * only fail, and the person read "could not be prepared. Please try again" — an error
+         * for something that was never going to work, and no hint of what was missing.
+         */
+        if ((type.requiredParameters ?? []).includes('documentNumber') && !input.documentNumber?.trim()) {
+          return { queued: false, needsDocumentNumber: true, reason: documentNumberPrompt(type.displayName) };
+        }
+
         const parameters: Record<string, unknown> = { ...deps.users().toDocumentParameters(tenant) };
         /*
          * An invoice or voucher, by number.
@@ -213,6 +289,9 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         const keyPart = (value: unknown): string => asText(value) ?? 'all';
 
         let resolvedType = type;
+        const itemLedger = allowed.find(t => t.documentType === 'item_ledger');
+        // A name that matched no account, retried against the stock list below.
+        let productName: string | null = null;
         if (!parameters.partyCode && input.partyName?.trim() && !wantsEveryone(input.partyName)) {
           const match = await deps.parties().find(tenant, input.partyName, input.documentType);
           if (match.kind === 'one' && match.party.lcode) {
@@ -235,12 +314,31 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
             return {
               queued: false,
               reason:
-                `I found a few people called "${input.partyName}". Which one?\n\n` +
-                match.parties.map((p, i) => `${i + 1}.  ${p.name}`).join('\n') +
-                '\n\nJust send the number.',
-              customers: match.parties.map(p => ({ name: p.name, partyCode: p.lcode })),
+                // "accounts", not "people": "Furniture" matched three ACCOUNTS — Furniture and
+                // Fixture, Furniture Expense — and "people called Furniture" read as nonsense.
+                `I found a few accounts called "${input.partyName}". Which one?\n\n` +
+                match.parties
+                  .slice(0, SHORTLIST_MAX)
+                  .map((p, i) => shortlistLine(i + 1, p.name, p.lcode, readablePhone(p.phone)))
+                  .join('\n') +
+                more(match.parties.length, 'name') +
+                '\n\nJust send the number.' +
+                periodNote(asText(parameters.from), asText(parameters.to)),
+              customers: match.parties.slice(0, SHORTLIST_MAX).map(p => ({ name: p.name, partyCode: p.lcode })),
             };
+          } else if (match.kind === 'none' && input.documentType === 'general_ledger' && itemLedger) {
+            /*
+             * Not an account — perhaps a product. "Furniture ledger of 1 year" names an item,
+             * and with no account called Furniture the whole general ledger used to go out.
+             * Only for the loose "ledger": a person who said "customer ledger" meant a customer.
+             */
+            productName = input.partyName.trim();
+            resolvedType = itemLedger;
           } else {
+            if (match.kind === 'none') {
+              const near = await deps.parties().suggest(tenant, input.partyName, input.documentType, 'party');
+              if (near.length) return didYouMean(input.partyName, near, asText(parameters.from), asText(parameters.to));
+            }
             return {
               queued: false,
               reason:
@@ -260,23 +358,44 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          * ledger is the same disclosure as an unresolvable customer answered with the whole
          * book — the person asked about one product and would be reading the whole catalogue.
          */
-        if (resolvedType.documentType === 'item_ledger' && input.itemName?.trim()) {
-          const item = await deps.parties().findItem(tenant, input.itemName);
+        const itemName = input.itemName?.trim() || productName;
+        if (resolvedType.documentType === 'item_ledger' && input.itemCode?.trim()) {
+          // Picked off a shortlist: the code the bot itself listed, inside the asker's company.
+          parameters.itemCode = input.itemCode.trim();
+        } else if (resolvedType.documentType === 'item_ledger' && itemName) {
+          const item = await deps.parties().findItem(tenant, itemName);
           if (item.kind === 'one' && item.party.lcode) {
             parameters.itemCode = item.party.lcode;
           } else if (item.kind === 'several') {
             return {
               queued: false,
               reason:
-                `I found a few items like "${input.itemName}". Which one?\n\n` +
-                item.parties.map((p, i) => `${i + 1}.  ${p.name}`).join('\n') +
-                '\n\nJust send the number.',
-              items: item.parties.map(p => ({ name: p.name, itemCode: p.lcode })),
+                `I found a few items like "${itemName}". Which one?\n\n` +
+                item.parties
+                  .slice(0, SHORTLIST_MAX)
+                  .map((p, i) => shortlistLine(i + 1, p.name, p.lcode))
+                  .join('\n') +
+                more(item.parties.length, 'item name') +
+                '\n\nJust send the number.' +
+                periodNote(asText(parameters.from), asText(parameters.to)),
+              items: item.parties.slice(0, SHORTLIST_MAX).map(p => ({ name: p.name, itemCode: p.lcode })),
             };
           } else {
+            // Near names from BOTH lists when the name was tried as an account first.
+            const near = [
+              ...(productName ? await deps.parties().suggest(tenant, itemName, 'general_ledger', 'party') : []),
+              ...(await deps.parties().suggest(tenant, itemName, 'item_ledger', 'item')).map(p => ({
+                ...p,
+                item: true,
+              })),
+            ].slice(0, 5);
+            if (near.length) return didYouMean(itemName, near, asText(parameters.from), asText(parameters.to));
             return {
               queued: false,
-              reason: `I could not find "${input.itemName}" in your items.\n\n` + 'Could you check the spelling?',
+              reason: productName
+                ? `I could not find "${itemName}" in your accounts or your items.\n\n` +
+                  'Could you check the spelling? Or send me the account code instead.'
+                : `I could not find "${itemName}" in your items.\n\n` + 'Could you check the spelling?',
             };
           }
         }
@@ -301,7 +420,13 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
             reason:
               `Which ${who}?\n\n` +
               `Just send me the name — for example *${who === 'supplier' ? 'Zahid Traders' : 'Danyal'}*.\n` +
-              `Or send *all* to get every ${who}.`,
+              `Or send *all* to get every ${who}.` +
+              /*
+               * The dates already chosen, written into the question so the answer can carry
+               * them: picking "Last 30 days" and then a name must not quietly become the
+               * whole history. Day-first, as the menu writes dates; read back by the menu.
+               */
+              periodNote(asText(parameters.from), asText(parameters.to)),
           };
         }
 

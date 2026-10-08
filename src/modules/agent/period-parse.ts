@@ -1,3 +1,5 @@
+import { wallClock } from '../../common/utils/wall-clock';
+
 /**
  * The periods people actually type, turned into the dates a report is fetched with.
  *
@@ -48,6 +50,35 @@ const endOfMonth = (y: number, m: number): Date => day(y, m + 1, 0);
 
 const MONTH_WORDS = Object.keys(MONTHS).join('|');
 
+/** Small numbers as people type them, English and Roman Urdu. Only read before a unit. */
+const NUMBER_WORDS: Readonly<Record<string, number>> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  six: 6,
+  twelve: 12,
+  ek: 1,
+  do: 2,
+  teen: 3,
+  chaar: 4,
+  char: 4,
+  paanch: 5,
+  panch: 5,
+  chhe: 6,
+};
+
+/**
+ * The same day N months earlier, held to the end of a shorter month: 31 March less one
+ * month is 28 or 29 February, not 3 March.
+ */
+function monthsBack(now: Date, n: number): Date {
+  const total = now.getUTCFullYear() * 12 + now.getUTCMonth() - n;
+  const y = Math.floor(total / 12);
+  const m = total - y * 12;
+  return day(y, m, Math.min(now.getUTCDate(), endOfMonth(y, m).getUTCDate()));
+}
+
 /**
  * The period a message asks for, or null when it names none.
  *
@@ -56,7 +87,7 @@ const MONTH_WORDS = Object.keys(MONTHS).join('|');
  * single month, which beats a relative phrase, so "1 July to 30 September" is not read as
  * "July".
  */
-export function parsePeriod(text: string, now: Date = new Date()): Period | null {
+export function parsePeriod(text: string, now: Date = wallClock()): Period | null {
   const lower = text.toLowerCase();
   const year = now.getUTCFullYear();
 
@@ -116,12 +147,34 @@ export function parsePeriod(text: string, now: Date = new Date()): Period | null
     return { from: iso(day(y, fromMonth, 1)), to: iso(endOfMonth(endYear, toMonth)) };
   }
 
-  // 4. "last N days" / "30 days".
-  const days = /\b(?:last\s+)?(\d{1,3})\s*days?\b/i.exec(lower);
-  if (days) {
-    const n = Number(days[1]);
-    if (n >= 1 && n <= 366) {
+  /*
+   * 4. "last N days", and the same for weeks, months and years: "30 days", "last 2 months",
+   * "1 year", "do mahine", "ek saal".
+   *
+   * Only days used to be read. "Furniture ledger of 1 year" and "last 2 months ka ledger" both
+   * came back null — no period — and null means the whole book, so the person asked for a span
+   * and silently received everything. A number word only counts when a unit follows it, which
+   * is what keeps the "do" of "ledger do" (give) from being read as two.
+   */
+  const span = new RegExp(
+    `\\b(?:(?:last|past|previous|pichle|pichhle)\\s+)?(\\d{1,3}|${Object.keys(NUMBER_WORDS).join('|')})\\s*` +
+      '(days?|din|weeks?|hafte|hafta|months?|mahine|mahina|years?|saal)\\b',
+    'i',
+  ).exec(lower);
+  if (span) {
+    const n = /^\d+$/.test(span[1]) ? Number(span[1]) : NUMBER_WORDS[span[1]];
+    const unit = span[2];
+    if (/^(days?|din)$/.test(unit) && n >= 1 && n <= 366) {
       return { from: iso(new Date(now.getTime() - n * 86_400_000)), to: iso(now) };
+    }
+    if (/^(weeks?|hafte|hafta)$/.test(unit) && n >= 1 && n <= 104) {
+      return { from: iso(new Date(now.getTime() - n * 7 * 86_400_000)), to: iso(now) };
+    }
+    if (/^(months?|mahine|mahina)$/.test(unit) && n >= 1 && n <= 36) {
+      return { from: iso(monthsBack(now, n)), to: iso(now) };
+    }
+    if (/^(years?|saal)$/.test(unit) && n >= 1 && n <= 5) {
+      return { from: iso(monthsBack(now, n * 12)), to: iso(now) };
     }
   }
 
@@ -176,6 +229,7 @@ export function parsePartyCode(text: string): string | null {
     /\b([A-Z]{1,4}-\d{3,})\b/i.exec(text);
   if (prefixed) return prefixed[1].toUpperCase();
 
-  const bare = /\b(?:for|of|party|code|account|lcode)\s*=?\s*(?:this\s+)?(\d{6,10})\b/i.exec(text);
+  // "general ledger 0101001" — straight after the word, as a live client wrote it.
+  const bare = /\b(?:for|of|party|code|account|lcode|ledger|khata)\s*=?\s*(?:this\s+)?(\d{6,10})\b/i.exec(text);
   return bare ? bare[1] : null;
 }

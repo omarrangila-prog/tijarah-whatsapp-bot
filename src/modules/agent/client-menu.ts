@@ -14,6 +14,7 @@
  */
 
 import { parsePeriod } from './period-parse';
+import { wallClock } from '../../common/utils/wall-clock';
 
 /** A report a client can ask for, as the registry describes it. */
 export interface MenuReport {
@@ -26,7 +27,7 @@ export interface MenuReport {
 /** What the caller should do once a reply has been read. */
 export type MenuAction =
   | { kind: 'show'; text: string }
-  | { kind: 'report'; documentType: string; from: string | null; to: string | null }
+  | { kind: 'report'; documentType: string; from: string | null; to: string | null; everyone?: boolean }
   | { kind: 'document'; prompt: string }
   | { kind: 'none' };
 
@@ -46,21 +47,77 @@ export type MenuStep =
  * short trailing politeness ("send please", "hello bhai") is still just a greeting.
  */
 export const MENU_TRIGGER =
-  /^\s*(send|bhejo?|menu|start|hi|hello|help|salam|assalam|aoa|option|options|list)[\s!.,]*(please|plz|bhai|yaar|ji)?[\s!.,]*$/i;
+  /^\s*(?:(?:bhai|yaar|ji|sir|ok|acha|achha)[\s!.,]+)?(send|bhejo?|menu|start|hi+|hey+|hy|hello|helo|hlo|help|salam|slam|assalam\w*|asalam\w*|aoa|option|options|list)[\s!.,]*(please|plz|bhai|yaar|ji)?[\s!.,]*$/i;
 
-/** Marks a message as one of this menu's, so the next reply can be read in context. */
+/**
+ * Marks a message as one of this menu's, so the next reply can be read in context.
+ *
+ * Every character here must be INVISIBLE. The first version ended each tag in a real digit
+ * (zero-width space, zero-width space, "1"), so every menu a client received closed with a
+ * stray number — "like trial balance.1", "Send 0 to go back.2" — on every single menu. The
+ * tags are read back from the bot's own stored reply, never from WhatsApp, so they only have
+ * to survive our database, which they do.
+ */
 const TAGS: Record<string, string> = {
-  root: '​​1',
-  reports: '​​2',
-  period: '​​3',
-  dates: '​​4',
+  root: '\u2060\u200b\u200b',
+  reports: '\u2060\u200b\u200c',
+  period: '\u2060\u200c\u200b',
+  dates: '\u2060\u200c\u200c',
 };
 
+/**
+ * The tags the first version sent, still recognised for one reason: a person who was half-way
+ * through a menu when the update landed answers a message that carries the old tag, and
+ * without this their "2" would fall through to "I did not understand".
+ */
+const LEGACY_TAGS: Record<string, string> = {
+  root: '\u200b\u200b1',
+  reports: '\u200b\u200b2',
+  period: '\u200b\u200b3',
+  dates: '\u200b\u200b4',
+};
+
+/** Whether a message carries this step's tag, current or legacy. */
+const tagged = (message: string, step: string): boolean =>
+  message.includes(TAGS[step]) || message.includes(LEGACY_TAGS[step]);
+
+/**
+ * Option 1's own title on the dates question, so the next step knows it means EVERY customer.
+ * "Who owes me money" answered with "Which customer?" was a question back to the plainest
+ * question a business asks; it is the receivables of all of them.
+ */
+export const RECEIVABLES_TITLE = 'Who owes me money';
+
 const ROOT_OPTIONS = [
-  { label: 'Who owes me money', documentType: 'customer_ledger' },
+  { label: RECEIVABLES_TITLE, documentType: 'customer_ledger' },
   { label: 'Send me a report', documentType: null },
-  { label: 'About an invoice', documentType: null },
+  { label: 'Get an invoice or voucher', documentType: null },
 ] as const;
+
+/**
+ * The root options as lines, for any message that offers "send 1, 2 or 3".
+ *
+ * Shared, because the "did not understand" reply printed its own list, whose option 3 said
+ * "Make a new invoice or voucher" while sending 3 actually asked for an invoice NUMBER — the
+ * same digit promising one thing and doing another.
+ */
+export function rootOptionLines(): string[] {
+  return ROOT_OPTIONS.map((o, i) => `${i + 1}.  ${o.label}`);
+}
+
+/**
+ * The voucher picked in answer to "Which voucher? 1. Payment 2. Receive", or null.
+ *
+ * Without this the "1" carried no menu tag and was read as option 1 of the MAIN menu, so
+ * choosing "Payment voucher" opened the Customer Ledger.
+ */
+export function voucherPick(lastBotMessage: string | null, reply: string): string | null {
+  if (!lastBotMessage || !/^Which voucher\?/.test(lastBotMessage)) return null;
+  const choice = readChoice(reply);
+  if (choice === 1 || /^\s*payment\s*$/i.test(reply)) return 'Payment Voucher';
+  if (choice === 2 || /^\s*(receive|receipt)\s*$/i.test(reply)) return 'Receive Voucher';
+  return null;
+}
 
 /**
  * The reports put at the top of the list, in this order.
@@ -95,18 +152,22 @@ export function orderReports(reports: MenuReport[]): MenuReport[] {
  * because it tells a new client what the bot can do without them having to know first.
  */
 export function rootMenu(businessName = 'Tijarah Books'): string {
-  const lines = ROOT_OPTIONS.map((o, i) => `${i + 1}.  ${o.label}`);
+  const lines = rootOptionLines();
   return (
     `Hello! This is *${businessName}*.\n\nWhat do you need?\n\n${lines.join('\n')}\n\n` +
     `Just send 1, 2 or 3.\nOr type what you want, like _trial balance_.${TAGS.root}`
   );
 }
 
-/** The report list: a number per report, and the name itself also works. */
+/**
+ * The report list: a number per report, and the name itself also works.
+ *
+ * Not capped. A cap of 20 silently dropped the Vendor Ledger the day invoices and vouchers
+ * were (wrongly) added to this list — the 21st entry simply vanished, with nothing to say so.
+ * The caller passes reports only; documents are fetched by number and have their own option.
+ */
 export function reportMenu(reports: MenuReport[]): string {
-  const lines = orderReports(reports)
-    .slice(0, 20)
-    .map((r, i) => `${i + 1}.  ${r.displayName}`);
+  const lines = orderReports(reports).map((r, i) => `${i + 1}.  ${r.displayName}`);
   return (
     `Which report do you need?\n\n${lines.join('\n')}\n\n` +
     `Send the number, or the name.\nSend 0 to go back.${TAGS.reports}`
@@ -150,15 +211,78 @@ export function datesPrompt(displayName: string): string {
  * When two accounts match a name the bot lists them and asks for a number. That number is
  * not a menu choice and not a report, so without reading the list back out of the question
  * the person's answer goes nowhere — the same dead end a bare name hit.
+ *
+ * Each line carries the account's code in brackets, and the CODE is what a pick resolves to.
+ * Resolving by name looped forever on a real client: three accounts all called exactly
+ * "USMAN", so picking "1" searched for "USMAN" again, found the same three, and asked again.
+ * A line with no code (an older message, or a name learned without one) keeps the name.
  */
-export function awaitedChoice(lastBotMessage: string | null): { ledger: string; names: string[] } | null {
+export interface ShortlistOption {
+  name: string;
+  code: string | null;
+  /** A product rather than an account, so the pick goes to the item ledger. */
+  item: boolean;
+}
+
+export function awaitedChoice(
+  lastBotMessage: string | null,
+): { ledger: string; names: string[]; options: ShortlistOption[] } | null {
   if (!lastBotMessage) return null;
-  const isParty = /^I found a few people called/.test(lastBotMessage);
+  // "people" is the older wording, still read so a reply to one sent before the update works.
+  const isParty = /^I found a few (?:people|accounts) called|^I could not find "[^"]*"\. Did you mean/.test(
+    lastBotMessage,
+  );
   const isItem = /^I found a few items like/.test(lastBotMessage);
   if (!isParty && !isItem) return null;
-  const names = [...lastBotMessage.matchAll(/^\d+\.\s+(.+)$/gm)].map(m => m[1].trim());
-  if (names.length === 0) return null;
-  return { ledger: isItem ? 'item_ledger' : 'party', names };
+  const options = [...lastBotMessage.matchAll(/^\d+\.\s+(.+)$/gm)].map(m => {
+    const line = m[1].trim();
+    const item = isItem || / — item\b/.test(line);
+    const coded = /^(.*?)\s*\(([0-9][0-9A-Za-z-]*)\)\s*$/.exec(line);
+    if (!coded) return { name: line, code: null, item };
+    // "USMAN — 0321 1111111 (0107031)": the name is what comes before the dash.
+    return { name: coded[1].split(' — ')[0].trim(), code: coded[2], item };
+  });
+  if (options.length === 0) return null;
+  return { ledger: isItem ? 'item_ledger' : 'party', names: options.map(o => o.name), options };
+}
+
+/**
+ * One line of a "which one?" shortlist: the name, a phone where there is one, and the code.
+ *
+ * The phone is what a business owner actually recognises a customer by; the code is what the
+ * pick resolves to. Without either, three accounts called "USMAN" were three identical lines.
+ */
+export function shortlistLine(index: number, name: string, code: string | null, phone?: string | null): string {
+  const tel = phone && /\d{7,}/.test(phone.replace(/\D/g, '')) ? ` — ${phone}` : '';
+  return `${index}.  ${name}${tel}${code ? ` (${code})` : ''}`;
+}
+
+/**
+ * Asks for the number of a document named without one: "Sale invoice dede".
+ *
+ * Built here, next to the reader below, so the question and the code that reads its answer
+ * cannot drift apart: a bare "179" in reply is then the number, not a stray digit.
+ */
+export function documentNumberPrompt(displayName: string): string {
+  return `Which *${displayName}*?\n\nSend me its number — for example *179*.`;
+}
+
+/**
+ * The document a "Which Sale Invoice? Send me its number" question was about, or null.
+ *
+ * Without this, answering the bot's own question with "179" reached the help list: the number
+ * alone names no document, and the person had to start again with "sale invoice 179".
+ */
+export function awaitedDocument(lastBotMessage: string | null): string | null {
+  if (!lastBotMessage) return null;
+  const match = /^Which \*([^*]+)\*\?\n\nSend me its number/.exec(lastBotMessage);
+  return match ? match[1] : null;
+}
+
+/** A document number answering that question: "179", "no 179", "#179". */
+export function readDocumentNumber(text: string): string | null {
+  const match = /^\s*(?:no\.?|number|#)?\s*(\d{1,10})\s*[.)]?\s*$/i.exec(text);
+  return match ? match[1] : null;
 }
 
 /**
@@ -176,13 +300,38 @@ export function awaitedParty(lastBotMessage: string | null): string | null {
   return null;
 }
 
+/**
+ * The dates a "Which customer?" question — or a "which one?" shortlist — was asked with, so the
+ * answer keeps them. "Furniture ledger of 1 year", answered with a pick from the list, used to
+ * arrive as the whole history.
+ */
+export function awaitedPartyPeriod(lastBotMessage: string | null): { from: string; to: string } | null {
+  if (!lastBotMessage || !(awaitedParty(lastBotMessage) || awaitedChoice(lastBotMessage))) return null;
+  const match = /\nDates: (\d{2})-(\d{2})-(\d{4}) to (\d{2})-(\d{2})-(\d{4})\s*$/.exec(lastBotMessage);
+  if (!match) return null;
+  return { from: `${match[3]}-${match[2]}-${match[1]}`, to: `${match[6]}-${match[5]}-${match[4]}` };
+}
+
+/**
+ * A reply that is only conversation — "haan bhai", "ok", "why", "Arey bhai" — and so is not
+ * the NAME the bot just asked for. Read as one, "haan bhai" became a customer search and
+ * "Arey bhai" became the customer on an invoice.
+ */
+const CHAT_WORDS =
+  /^(ok|okay|k|kk|haan|han|ha|haa|ji|jee|g|yes|yeah|no|nahi|nai|nhi|thanks|thank|you|thx|shukriya|acha|achha|accha|theek|thik|hai|he|hmm+|why|what|kya|kia|kyun|kyu|how|kaise|bhai|yaar|yar|arey|are|arre|sir|done|sure|right|hello|hi|hey|salam|please|plz|wait|ruko|chalo|chal|chalna|pagal|bas|nothing|kuch)$/i;
+
+export function isChitChat(text: string): boolean {
+  const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
+  return words.length > 0 && words.every(word => CHAT_WORDS.test(word));
+}
+
 /** Which step a conversation is on, from the last thing the bot said. */
 export function stepFor(lastBotMessage: string | null): MenuStep | null {
   if (!lastBotMessage) return null;
-  if (lastBotMessage.includes(TAGS.dates)) return { kind: 'dates', documentType: documentTypeIn(lastBotMessage) };
-  if (lastBotMessage.includes(TAGS.period)) return { kind: 'period', documentType: documentTypeIn(lastBotMessage) };
-  if (lastBotMessage.includes(TAGS.reports)) return { kind: 'reports' };
-  if (lastBotMessage.includes(TAGS.root)) return { kind: 'root' };
+  if (tagged(lastBotMessage, 'dates')) return { kind: 'dates', documentType: documentTypeIn(lastBotMessage) };
+  if (tagged(lastBotMessage, 'period')) return { kind: 'period', documentType: documentTypeIn(lastBotMessage) };
+  if (tagged(lastBotMessage, 'reports')) return { kind: 'reports' };
+  if (tagged(lastBotMessage, 'root')) return { kind: 'root' };
   return null;
 }
 
@@ -273,13 +422,18 @@ export function advance(
   step: MenuStep | null,
   reply: string,
   reports: MenuReport[],
-  now: Date = new Date(),
+  now: Date = wallClock(),
 ): MenuAction {
   const choice = readChoice(reply);
 
   // "back" or "menu" anywhere returns to the start, so nobody is ever stuck part-way through
   // a question they did not mean to open.
-  if (/^\s*(back|menu|start|cancel|wapas)\s*$/i.test(reply)) return { kind: 'show', text: rootMenu() };
+  /*
+   * Only while a menu is open. With none, "cancel" belongs to whatever IS open — the bot's own
+   * draft messages say "say *cancel* to drop it", and this line answered that with the menu
+   * while the invoice stayed open.
+   */
+  if (step && /^\s*(back|menu|start|cancel|wapas)\s*$/i.test(reply)) return { kind: 'show', text: rootMenu() };
 
   if (!step || step.kind === 'root') {
     if (choice === null) return { kind: 'none' };
@@ -288,7 +442,10 @@ export function advance(
     if (option.documentType) {
       const report = reports.find(r => r.documentType === option.documentType);
       return report
-        ? { kind: 'show', text: periodMenu(report.displayName) }
+        ? {
+            kind: 'show',
+            text: periodMenu(option.label === RECEIVABLES_TITLE ? RECEIVABLES_TITLE : report.displayName),
+          }
         : { kind: 'show', text: reportMenu(reports) };
     }
     if (choice === 2) return { kind: 'show', text: reportMenu(reports) };
@@ -311,11 +468,16 @@ export function advance(
   }
 
   if (step.kind === 'period') {
-    const report = reports.find(r => r.displayName === step.documentType);
+    const everyone = step.documentType === RECEIVABLES_TITLE;
+    const report = everyone
+      ? reports.find(r => r.documentType === 'customer_ledger')
+      : reports.find(r => r.displayName === step.documentType);
     if (!report) return { kind: 'show', text: reportMenu(reports) };
     if (choice === 0) return { kind: 'show', text: reportMenu(reports) };
     // 8 is the custom range in PERIOD_OPTIONS: a prompt for two dates, not a period itself.
-    if (choice === PERIOD_OPTIONS.length) return { kind: 'show', text: datesPrompt(report.displayName) };
+    if (choice === PERIOD_OPTIONS.length) {
+      return { kind: 'show', text: datesPrompt(everyone ? RECEIVABLES_TITLE : report.displayName) };
+    }
     const period = choice === null ? null : periodFor(choice, now);
     if (!period) {
       /*
@@ -323,8 +485,15 @@ export function advance(
        * same parser the free-text path uses, so "last 20 days" and "1 Jan se 31 March tak"
        * work here too rather than only the two forms this menu happens to print.
        */
-      const typed = readDates(reply) ?? parsePeriod(reply, now);
-      if (typed) return { kind: 'report', documentType: report.documentType, from: typed.from, to: typed.to };
+      const typed = onlyAPeriod(reply) ? (readDates(reply) ?? parsePeriod(reply, now)) : null;
+      if (typed)
+        return {
+          kind: 'report',
+          documentType: report.documentType,
+          from: typed.from,
+          to: typed.to,
+          ...(everyone ? { everyone: true } : {}),
+        };
       /*
        * Anything else is a NEW request, not a bad answer.
        *
@@ -336,13 +505,127 @@ export function advance(
        */
       return { kind: 'none' };
     }
-    return { kind: 'report', documentType: report.documentType, from: period.from, to: period.to };
+    return {
+      kind: 'report',
+      documentType: report.documentType,
+      from: period.from,
+      to: period.to,
+      ...(everyone ? { everyone: true } : {}),
+    };
   }
 
   // step.kind === 'dates'
-  const report = reports.find(r => r.displayName === step.documentType);
+  const everyone = step.documentType === RECEIVABLES_TITLE;
+  const report = everyone
+    ? reports.find(r => r.documentType === 'customer_ledger')
+    : reports.find(r => r.displayName === step.documentType);
   if (!report) return { kind: 'show', text: reportMenu(reports) };
-  const typed = readDates(reply);
-  if (!typed) return { kind: 'show', text: datesPrompt(report.displayName) };
-  return { kind: 'report', documentType: report.documentType, ...typed };
+  /*
+   * The prompt shows the dates day-first — "01-07-2026 to 30-09-2026" — because that is how
+   * Pakistan writes them. Only the ISO form used to be read here, so a person who copied the
+   * example exactly was shown the same prompt again, forever.
+   */
+  const typed = readDates(reply) ?? parsePeriod(reply, now);
+  if (!typed) return { kind: 'show', text: datesPrompt(everyone ? RECEIVABLES_TITLE : report.displayName) };
+  return {
+    kind: 'report',
+    documentType: report.documentType,
+    from: typed.from,
+    to: typed.to,
+    ...(everyone ? { everyone: true } : {}),
+  };
+}
+
+/**
+ * Whether a reply is nothing BUT a period: "last 20 days", "1 Jan se 31 March tak".
+ *
+ * "Furniture ledger of 1 year", typed at the Item Ledger's date question, contains a period
+ * too — and taking only that part sent the ledger of every item, dropping the one product the
+ * person named. A reply with anything else in it is a new request and goes to the reasoning,
+ * which reads all of it.
+ */
+const PERIOD_WORDS = new RegExp(
+  '^(' +
+    [
+      'last',
+      'past',
+      'previous',
+      'pichle',
+      'pichhle',
+      'this',
+      'current',
+      'is',
+      'us',
+      'from',
+      'to',
+      'till',
+      'until',
+      'upto',
+      'up',
+      'se',
+      'tak',
+      'and',
+      'the',
+      'of',
+      'for',
+      'ka',
+      'ki',
+      'ke',
+      'only',
+      'sirf',
+      'please',
+      'plz',
+      'ji',
+      'bhai',
+      'aaj',
+      'ab',
+      'today',
+      'date',
+      'days?',
+      'din',
+      'weeks?',
+      'hafte',
+      'hafta',
+      'months?',
+      'mahine',
+      'mahina',
+      'years?',
+      'saal',
+      'one',
+      'two',
+      'three',
+      'six',
+      'twelve',
+      'ek',
+      'do',
+      'teen',
+      'chaar',
+      'char',
+      'paanch',
+      'panch',
+      'chhe',
+      'st',
+      'nd',
+      'rd',
+      'th',
+      'jan(uary)?',
+      'feb(ruary)?',
+      'mar(ch)?',
+      'apr(il)?',
+      'may',
+      'june?',
+      'july?',
+      'aug(ust)?',
+      'sep(t|tember)?',
+      'oct(ober)?',
+      'nov(ember)?',
+      'dec(ember)?',
+    ].join('|') +
+    ')$',
+  'i',
+);
+
+export function onlyAPeriod(reply: string): boolean {
+  const words = reply.toLowerCase().match(/[a-z]+/g) ?? [];
+  return words.every(word => PERIOD_WORDS.test(word));
 }

@@ -19,7 +19,7 @@ describe('RequestAccountingReport', () => {
   const report = (documentType: string, displayName: string): DocumentTypeRegistry =>
     ({ documentType, displayName, optionalParameters: ['from', 'to'] }) as DocumentTypeRegistry;
 
-  const build = () => {
+  const build = (extra: DocumentTypeRegistry[] = []) => {
     const created: Record<string, unknown>[] = [];
     const jobs = {
       listChatRequestable: () =>
@@ -28,6 +28,7 @@ describe('RequestAccountingReport', () => {
           report('customer_ledger', 'Customer Ledger'),
           report('vendor_ledger', 'Vendor Ledger'),
           report('item_ledger', 'Item Ledger'),
+          ...extra,
         ]),
       create: (input: Record<string, unknown>) => {
         // Mirrors the real service: a repeated idempotencyKey is rejected with the existing
@@ -64,6 +65,7 @@ describe('RequestAccountingReport', () => {
     const parties = {
       find: jest.fn().mockResolvedValue({ kind: 'none' }),
       findItem: jest.fn().mockResolvedValue({ kind: 'none' }),
+      suggest: jest.fn().mockResolvedValue([]),
     } as unknown as KnownPartyService;
     const tools = reportRequestTools({ jobs: () => jobs, users: () => users, parties: () => parties });
     const byName = (name: string) => tools.find(t => t.name === name)!;
@@ -345,6 +347,96 @@ describe('RequestAccountingReport', () => {
     expect(result.queued).toBe(false);
     expect(String(result.reason)).toMatch(/not set up with an account/i);
     expect(created).toHaveLength(0);
+  });
+
+  it('asks for the number of an invoice chosen without one, instead of failing', async () => {
+    // "17. Sale Invoice" off the menu queued a fetch with no number and answered
+    // "could not be prepared. Please try again" — for something that could never work.
+    const { request, created } = build([
+      {
+        documentType: 'sale_invoice',
+        displayName: 'Sale Invoice',
+        requiredParameters: ['documentNumber'],
+        optionalParameters: [],
+      } as unknown as DocumentTypeRegistry,
+    ]);
+    const result = await run(request, { senderPhone: '923001234567', documentType: 'sale_invoice' });
+
+    expect(result.queued).toBe(false);
+    expect(String(result.reason)).toContain('Which *Sale Invoice*?');
+    expect(created).toHaveLength(0);
+  });
+
+  it('lists at most eight matches, and says how many more there are', async () => {
+    // 69 "Sheglam" items made a reply too long to pass on, and the client was sent raw JSON.
+    const { request, parties } = build();
+    (parties.findItem as jest.Mock).mockResolvedValue({
+      kind: 'several',
+      parties: Array.from({ length: 69 }, (_, i) => ({ name: `SHEGLAM ${i}`, phone: '', lcode: `00100${i}` })),
+    });
+
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'item_ledger',
+      itemName: 'sheglam',
+    });
+
+    expect(result.items).toHaveLength(8);
+    expect(String(result.reason)).toContain('…and 61 more');
+    expect(JSON.stringify(result).length).toBeLessThan(8000);
+  });
+
+  it('shows the code and phone on each line, so identical names can be told apart', async () => {
+    const { request, parties } = build();
+    (parties.find as jest.Mock).mockResolvedValue({
+      kind: 'several',
+      parties: [
+        { name: 'USMAN', phone: '923211111111', lcode: '0104008' },
+        { name: 'USMAN', phone: '', lcode: '0107108' },
+      ],
+    });
+
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'general_ledger',
+      partyName: 'usman',
+      from: '2026-09-01',
+      to: '2026-09-30',
+    });
+
+    expect(String(result.reason)).toContain('1.  USMAN — 0321 1111111 (0104008)');
+    expect(String(result.reason)).toContain('2.  USMAN (0107108)');
+    // The dates ride on the question, so the pick keeps them.
+    expect(String(result.reason)).toContain('Dates: 01-09-2026 to 30-09-2026');
+  });
+
+  it('offers near names when a name matches nothing', async () => {
+    const { request, parties, created } = build();
+    (parties.suggest as jest.Mock).mockResolvedValue([{ name: 'KHUZEMA TRADEVIVE', phone: '', lcode: '0106015' }]);
+
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'customer_ledger',
+      partyName: 'khuzema ahmed',
+    });
+
+    expect(String(result.reason)).toContain('Did you mean one of these?');
+    expect(String(result.reason)).toContain('1.  KHUZEMA TRADEVIVE (0106015)');
+    expect(created).toHaveLength(0);
+  });
+
+  it('tries a loose "ledger" name as a product when no account has it', async () => {
+    // "Furniture ledger of 1 year": no such account, so the stock list is asked next.
+    const { request, parties, created } = build();
+    (parties.findItem as jest.Mock).mockResolvedValue({
+      kind: 'one',
+      party: { name: 'FURNITURE', phone: '', lcode: '002001001' },
+    });
+
+    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', partyName: 'furniture' });
+
+    expect(created[0].documentType).toBe('item_ledger');
+    expect(created[0].parameters).toMatchObject({ itemCode: '002001001' });
   });
 
   it('is senderScoped, which is what makes the recipient unforgeable', () => {

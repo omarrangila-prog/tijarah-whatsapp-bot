@@ -109,9 +109,31 @@ export class MockReasoningProvider implements ReasoningProvider {
      * Recognised commands still win, so "cancel" and "submit" work mid-draft.
      */
     if (composing && intent.kind === 'help') {
+      /*
+       * Several lines in one message — a numbered list, or two on one line ("10 led bulb at
+       * 20000 30 normal bulb at 500"). Both were real messages, and both were answered
+       * "Nothing is waiting on an answer" with not one line added.
+       */
+      const many = parseLineItems(text);
+      if (many.complete.length > 1 || (many.complete.length === 1 && many.unpriced.length > 0)) {
+        return this.callIfAvailable(
+          available,
+          'AddDraftLineItem',
+          { lines: many.complete, unpriced: many.unpriced },
+          'Adding those lines.',
+        );
+      }
       const line = parseLineItem(text);
       if (line) {
         return this.callIfAvailable(available, 'AddDraftLineItem', line, 'Adding that line.');
+      }
+      /*
+       * The price answering "How much per piece for cotton?" — "AT 60 RS" on a live chat,
+       * which matched nothing and lost the line the question was about.
+       */
+      const priced = priceAnswer(lastAssistantText(request.messages), text);
+      if (priced) {
+        return this.callIfAvailable(available, 'AddDraftLineItem', priced, 'Adding that line.');
       }
       /*
        * A line that names a quantity and an item but no price.
@@ -125,6 +147,35 @@ export class MockReasoningProvider implements ReasoningProvider {
         return this.finish(
           `How much per ${partial.unit ?? 'piece'} for *${partial.description}*?\n\n` +
             `Send it like this: _${partial.quantity} ${partial.description} at 600_`,
+        );
+      }
+      // "Customer ahmed", "supplier = abdul rafay" — the party named, or changed, by label.
+      const party =
+        /^\s*(?:customer|supplier|vendor|party|client)(?:\s+name)?\s*(?:=|:|-|\bis\b)?\s*([A-Za-z].{1,80})$/i.exec(
+          text,
+        );
+      if (party) {
+        return this.callIfAvailable(
+          available,
+          'SetDraftField',
+          { field: 'partyName', value: party[1].trim() },
+          'Noted.',
+        );
+      }
+      /*
+       * Conversation is not an answer. "Arey bhai" became the customer on a live invoice and
+       * "Hey" was told "Nothing is waiting on an answer"; a reminder of what is open, and how
+       * to leave it, is what the person needs.
+       */
+      if (
+        isChitChat(text) ||
+        /^\s*(reports?|docs?|documents?|statement|help|list|options?|details?|ledger)\s*[?.!]*\s*$/i.test(text)
+      ) {
+        const summary = request.context?.openDraftSummary;
+        return this.finish(
+          (summary ?? 'You have a document open.') +
+            '\n\nSend what it still needs, say *submit* when it is done, or *cancel* to drop it.' +
+            '\nFor a report instead, just ask for it — like _trial balance_.',
         );
       }
       return this.callIfAvailable(available, 'AnswerDraftPrompt', { value: text }, 'Noted.');
@@ -187,13 +238,35 @@ export class MockReasoningProvider implements ReasoningProvider {
           '',
         );
 
-      case 'create_start':
+      case 'create_start': {
+        /*
+         * Everything said in one message is used. "Create a sale invoice for Ahmed Traders,
+         * 10 shirts at 1500" started an EMPTY draft and asked who it was for — with no AI key
+         * on the live server, this is the path every client takes.
+         */
+        const given = composeDetails(text);
+        if (given && /_(invoice|return)$/.test(intent.documentType)) {
+          return this.callIfAvailable(
+            available,
+            'ComposeDocument',
+            {
+              documentType: intent.documentType,
+              fields: {
+                ...(given.partyName ? { partyName: given.partyName } : {}),
+                ...(given.partyCode ? { partyCode: given.partyCode } : {}),
+              },
+              ...(given.items.length ? { items: given.items } : {}),
+            },
+            '',
+          );
+        }
         return this.callIfAvailable(
           available,
           'StartDocumentDraft',
           { documentType: intent.documentType },
           `Starting a ${intent.documentType.replace(/^create_/, '').replace(/_/g, ' ')}.`,
         );
+      }
 
       case 'create_review':
         return this.callIfAvailable(available, 'ReviewDraft', {}, 'Reading back what we have so far.');
@@ -242,7 +315,7 @@ export class MockReasoningProvider implements ReasoningProvider {
           'Which voucher?\n\n' +
             '1.  Payment voucher — money you paid out\n' +
             '2.  Receive voucher — money you took in\n\n' +
-            'Send the number, or say _create payment voucher_.',
+            'Send 1 or 2.\nTo make a new one, say _create payment voucher_.',
         );
 
       case 'document':
@@ -254,20 +327,22 @@ export class MockReasoningProvider implements ReasoningProvider {
         );
 
       case 'need_document_number':
+        {
+          const who = nameBesideDocument(text);
+          if (who) {
+            return this.finish(
+              documentNumberPrompt(intent.displayName) + `\n\nOr, for everything with ${who}, send _${who} ka ledger_.`,
+            );
+          }
+        }
         /*
-         * An invoice is NOT fetchable from a conversation, and saying so is the honest reply.
-         *
-         * Asking "which number?" offered something that cannot be delivered: a document by
-         * number is excluded from chat on purpose, because invoice 179 belongs to one
-         * customer and any client quoting the number would receive it. The bot used to ask
-         * for the number and then answer the number with its help list, which reads as
-         * broken. It now says what it can do instead.
+         * Ask for the number. A document named without one used to be refused with "I cannot
+         * fetch one here" — written before documents could be fetched at all, and left behind
+         * when they could, so "sale invoice 179" worked while "sale invoice" said it never
+         * would. The question is built beside the code that reads its answer, so a bare "179"
+         * in reply is taken as the number.
          */
-        return this.finish(
-          `A ${intent.displayName === 'invoice' ? 'particular invoice' : intent.displayName.toLowerCase()} is sent to you from Tijarah Books, so I cannot fetch one here.\n\n` +
-            'I can send you a *report* instead — for example the sales book, or your ledger for a period. ' +
-            'Reply *menu* to see the list.',
-        );
+        return this.finish(documentNumberPrompt(intent.displayName));
 
       case 'pending':
         return this.callIfAvailable(available, 'AgentListPendingApprovals', {}, 'Checking what is waiting.');
@@ -280,9 +355,7 @@ export class MockReasoningProvider implements ReasoningProvider {
             [
               'Sorry, I did not understand that. Here is what I can do:',
               '',
-              '1.  Who owes me money',
-              '2.  Send me a report',
-              '3.  Make a new invoice or voucher',
+              ...rootOptionLines(),
               '',
               'Just send 1, 2 or 3.',
               '',
@@ -377,11 +450,11 @@ type Intent =
  * document instead of starting one.
  */
 const CREATE_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\bdigital\s+invoice\b/, 'create_digital_invoice'],
-  [/\bsale\s+return\b/, 'create_sale_return'],
+  [/\bdigital\s+(?:invoi[a-z]{0,3}|inv)\b/, 'create_digital_invoice'],
+  [/\bsales?\s+return\b/, 'create_sale_return'],
   [/\bpurchase\s+return\b/, 'create_purchase_return'],
-  [/\bsales?\s+invoice\b/, 'create_sale_invoice'],
-  [/\bpurchase\s+invoice\b/, 'create_purchase_invoice'],
+  [/\bsales?\s+(?:invoi[a-z]{0,3}|inv|bills?)\b/, 'create_sale_invoice'],
+  [/\bpurchase\s+(?:invoi[a-z]{0,3}|inv|bills?)\b/, 'create_purchase_invoice'],
   [/\bpayment\s+voucher\b/, 'create_payment_voucher'],
   [/\breceive\s+voucher\b|\breceipt\s+voucher\b/, 'create_receive_voucher'],
   [/\bcustomer\s+account\b|\bnew\s+customer\b/, 'create_customer_account'],
@@ -389,6 +462,14 @@ const CREATE_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bexpense\s+account\b/, 'create_expense_account'],
   [/\bchart\s+of\s+account\b/, 'create_chart_of_account'],
   [/\bitem\s+account\b|\bnew\s+item\b/, 'create_item_account'],
+  /*
+   * The kind left off: "create invoice", "create purchase", "make bill". Real messages on
+   * 8 October; "create invoice" was answered "I cannot fetch one here", which is not even the
+   * question that was asked.
+   */
+  // Not when a REPORT is named: "make purchase book report" must still reach the report.
+  [/\bpurchase\b(?!\s+(?:book|report|returns?|ledger))/, 'create_purchase_invoice'],
+  [/\b(?:invoi[a-z]{0,3}|inv|bills?)\b|\bsales?\b(?!\s+(?:book|report|returns?|ledger))/, 'create_sale_invoice'],
 ];
 
 /**
@@ -401,6 +482,7 @@ const CREATE_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
  */
 import { parsePartyCode, parsePeriod } from './period-parse';
 import { fuzzyReport, REPORT_WORD_SETS } from './fuzzy-report';
+import { documentNumberPrompt, isChitChat, rootOptionLines } from './client-menu';
 
 /**
  * A party named in a ledger request, e.g. "Anas Boltan ka ledger bhejo" → "Anas Boltan".
@@ -415,47 +497,130 @@ import { fuzzyReport, REPORT_WORD_SETS } from './fuzzy-report';
  * are excluded, so "send me the ledger" is not read as a customer called "send me the".
  */
 const LEDGER_NOISE =
-  /^(send|me|my|the|a|an|please|plz|bhej|bhejo|do|de|dedo|chahiye|mujhe|ka|ki|ke|k|is|this|that|for|of|full|all|total|complete|new|old|last|latest|report|statement|account|accounts|pls|kindly|need|want|get|give|show|aaj|tak|ab|today|till|date|upto|up|to|from|se|days?|day|month|months|year|years|saal|mahina|mahine|current|previous|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?)$/i;
+  /^(sent|snd|bhejdo|bhejiye|dijiye|dein|den|karo|kar|plzz|send|me|my|the|a|an|please|plz|bhej|bhejo|do|de|dedo|chahiye|mujhe|ka|ki|ke|k|is|this|that|for|of|full|all|total|complete|new|old|last|latest|report|statement|account|accounts|pls|kindly|need|want|get|give|show|aaj|tak|ab|today|till|date|upto|up|to|from|se|days?|day|month|months|year|years|saal|mahina|mahine|current|previous|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?)$/i;
 
 function partyNameIn(body: string): string | null {
   const patterns = [
     // "ledger of Anas Boltan" / "ledger for Anas"
-    /\b(?:ledger|statement|khata)\s+(?:of|for|ka|ki|ke)\s+([A-Za-z][A-Za-z .'&-]{1,60})/i,
+    /\b(?:ledger|statement|khata|hisab|hisaab)\s+(?:of|for|ka|ki|ke)\s+([A-Za-z][A-Za-z .'&-]{1,60})/i,
     // "Anas Boltan ka ledger" — Roman Urdu word order
-    /([A-Za-z][A-Za-z .'&-]{1,60}?)\s+(?:ka|ki|ke)\s+(?:ledger|statement|khata)\b/i,
+    /([A-Za-z][A-Za-z .'&-]{1,60}?)\s+(?:ka|ki|ke)\s+(?:ledger|statement|khata|hisab|hisaab)\b/i,
+    /*
+     * "Furniture ledger of 1 year" — the name straight before the word, with no "ka".
+     *
+     * A real message on 8 October. With no pattern for it the name was dropped and the WHOLE
+     * general ledger went out instead of the one account or product asked about. Request
+     * words in front ("send me ledger", "full ledger") are filtered below as before.
+     */
+    /([A-Za-z][A-Za-z .'&-]{1,60}?)\s+(?:ledger|khata|hisab|hisaab)\b/i,
+    // "Ahmed Bolten ka de" — the thing itself left unsaid, which in these chats is the ledger.
+    /^\s*([A-Za-z][A-Za-z .'&-]{1,60}?)\s+ka\s+(?:de|do|dedo|de\s+do|bhejo|bhej\s+do|send)\s*[.!]?\s*$/i,
   ];
-  for (const pattern of patterns) {
+  for (const [index, pattern] of patterns.entries()) {
     const match = pattern.exec(body);
     if (!match) continue;
-    const words = match[1]
-      .trim()
-      .split(/\s+/)
-      .filter(word => !LEDGER_NOISE.test(word));
-    if (words.length) return words.join(' ');
+    const words = match[1].trim().split(/\s+/);
+    /*
+     * In "<name> ledger" the word straight before "ledger" may be the KIND of ledger —
+     * "customer ledger last 30 days", "Danyal ka customer ledger" — which is not part of
+     * anyone's name. Only trailing ones, and only in this word order: inside a name, as in
+     * "CASH CUSTOMER ka ledger", the word belongs to the name.
+     */
+    if (index === 2) {
+      while (
+        words.length &&
+        /^(customers?|vendors?|suppliers?|expenses?|items?|general|party|parties|gl)$/i.test(words[words.length - 1])
+      ) {
+        words.pop();
+      }
+    }
+    const name = withoutProductWord(words.filter(word => !LEDGER_NOISE.test(word)));
+    if (name.length) return name.join(' ');
   }
   return null;
 }
 
+/**
+ * "Sheglam product" → "Sheglam". The word says WHAT the thing is, and it is not in the stock
+ * list's name, so with it every word of the search could not match and nothing was found.
+ */
+function withoutProductWord(words: string[]): string[] {
+  const kept = [...words];
+  while (kept.length > 1 && /^(products?|maal|saman|samaan)$/i.test(kept[kept.length - 1])) kept.pop();
+  return kept;
+}
+
 /** Documents a person asks for by number, for the "which number?" reply when they omit it. */
 const DOCUMENT_BY_NUMBER: ReadonlyArray<readonly [RegExp, string, string]> = [
-  [/\bdigital\s+invoice\b/, 'Digital Invoice', 'digital_invoice'],
-  [/\bsales?\s+return\b/, 'Sale Return', 'sale_return'],
-  [/\bpurchase\s+return\b/, 'Purchase Return', 'purchase_return'],
-  [/\bsales?\s+invoice\b|\bsale\s+bill\b/, 'Sale Invoice', 'sale_invoice'],
-  [/\bpurchase\s+invoice\b|\bpurchase\s+bill\b/, 'Purchase Invoice', 'purchase_invoice'],
-  [/\bpayment\s+voucher\b/, 'Payment Voucher', 'payment_voucher'],
-  [/\breceive\s+voucher\b|\breceipt\s+voucher\b/, 'Receive Voucher', 'receive_voucher'],
+  [/\bdigital\s+(?:invoi[a-z]{0,3}|inv)\b/, 'Digital Invoice', 'digital_invoice'],
+  [/\bsales?\s+returns?\b/, 'Sale Return', 'sale_return'],
+  [/\bpurchase\s+returns?\b/, 'Purchase Return', 'purchase_return'],
+  [/\bsales?\s+(?:invoi[a-z]{0,3}|inv)\b|\bsales?\s+bills?\b/, 'Sale Invoice', 'sale_invoice'],
+  [/\bpurchase\s+(?:invoi[a-z]{0,3}|inv)\b|\bpurchase\s+bills?\b/, 'Purchase Invoice', 'purchase_invoice'],
+  [/\bpayment\s+vouchers?\b/, 'Payment Voucher', 'payment_voucher'],
+  [/\breceive\s+vouchers?\b|\breceipt\s+vouchers?\b/, 'Receive Voucher', 'receive_voucher'],
   // Bare "invoice"/"bill": a sale invoice is what a business means by it nine times in ten.
-  [/\binvoice\b|\bbill\b/, 'Sale Invoice', 'sale_invoice'],
+  // "invoic" and "invoicw" are real typos from the live chats, and "inv" is the shorthand.
+  [/\b(?:invoi[a-z]{0,3}|inv)\b|\bbills?\b/, 'Sale Invoice', 'sale_invoice'],
 ];
+
+/**
+ * The book that lists every document of a kind, for "invoices" asked for over a period.
+ *
+ * "Last 30 days ki invoice" is not invoice number 30: it is every sale invoice of the last
+ * thirty days, which is exactly what the sales book is. Vouchers and digital invoices have no
+ * book of their own here, so for those the number is asked for instead.
+ */
+const BOOK_FOR: Readonly<Record<string, string>> = {
+  sale_invoice: 'sales_book_report',
+  purchase_invoice: 'purchase_book_report',
+  sale_return: 'sale_return_report',
+  purchase_return: 'purchase_return_report',
+};
+
+/**
+ * The number written straight after a document's name: "sale invoice 179", "invoice no 179",
+ * "invoice #179".
+ *
+ * Only there. Taking the first number anywhere in the message turned "Last 30 days ki
+ * invoice" into invoice number 30 — a real PDF of somebody's invoice, sent confidently to a
+ * person who had asked for a period. A number followed by a unit of time is never a document.
+ */
+function documentNumberAfter(lower: string, pattern: RegExp): string | null {
+  const at = pattern.exec(lower);
+  if (!at) return null;
+  // "54 no receive voucher" — the number first, marked as one by "no"/"number"/"#". The marker
+  // is required: "2 invoices" is a count, not invoice number 2.
+  const before = /(\d{1,10})\s*(?:no\.?|number|num|#)\s*$/.exec(lower.slice(0, at.index));
+  if (before) return before[1];
+  const rest = lower.slice(at.index + at[0].length);
+  const number =
+    /^\s*(?:no\.?|number|num|#|:|-)?\s*(\d{1,10})\b(?!\s*(?:days?|din|weeks?|hafte|months?|mahine|years?|saal))/.exec(
+      rest,
+    );
+  return number ? number[1] : null;
+}
+
+/**
+ * The reports that are about ONE account, and so may carry a name. "General ledger for cash
+ * bank book" read "cash bank book" as a customer, because every report looked for a name.
+ */
+const PARTY_TYPES: ReadonlySet<string> = new Set([
+  'general_ledger',
+  'customer_ledger',
+  'vendor_ledger',
+  'expense_ledger',
+]);
 
 const REPORT_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bcustomer\s+ledger\b/, 'customer_ledger'],
   [/\bvendor\s+ledger\b|\bsupplier\s+ledger\b/, 'vendor_ledger'],
   [/\bexpense\s+ledger\b/, 'expense_ledger'],
   [/\bitem\s+ledger\b/, 'item_ledger'],
-  [/\btrial\s+balance\b/, 'trial_balance'],
-  [/\bstock\s+summary\b|\bstock\s+report\b/, 'stock_summary'],
+  // "Trail bal bhej" — the shorthand, misspelt, from a live chat.
+  [/\btrial\s+balance\b|\b(?:trial|trail|tral)\s+bal\b/, 'trial_balance'],
+  // "item list", sent mid-invoice on a live chat and taken as the customer's name.
+  [/\bstock\s+summary\b|\bstock\s+report\b|\bitems?\s+list\b|\blist\s+of\s+items\b|\bstock\s+list\b/, 'stock_summary'],
   [/\bincome\s+statement\b|\bprofit\s*(and|&|n)?\s*loss\b|\bp\s*&\s*l\b/, 'income_statement'],
   [/\bbalance\s+sheet\b/, 'balance_sheet'],
   [/\bcash\s*(and|&|n)?\s*bank\b/, 'cash_bank_book'],
@@ -478,7 +643,7 @@ const REPORT_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
  * account, to someone who asked for one customer. A near-miss on a specific ledger has to
  * win over the catch-all, so the catch-all is tried last of all.
  */
-const BARE_LEDGER = /\bledger\b/;
+const BARE_LEDGER = /\bledger\b|\bkhata\b|\bhisa+b\b/;
 
 /**
  * The product named in an item-ledger request: "Vaseline gluta glow ka item ledger bhejo".
@@ -515,7 +680,13 @@ function itemNameIn(body: string): string | null {
         // Noise is dropped only while nothing real has appeared yet.
         return all.slice(0, i).some(w => !LEDGER_NOISE.test(w) && !/^(item|ledger)$/i.test(w));
       });
-    if (words.length) return words.join(' ');
+    /*
+     * "Pagal ha kia item ka ledger de" — "item ka ledger" is THE item ledger, not a product
+     * called "...item". A capture that ends on the word itself names no product.
+     */
+    if (words.length && /^items?$/i.test(words[words.length - 1])) return null;
+    const name = withoutProductWord(words);
+    if (name.length) return name.join(' ');
   }
   return null;
 }
@@ -588,7 +759,7 @@ export function detectIntent(text: string): Intent {
         from: period?.from ?? null,
         to: period?.to ?? null,
         partyCode,
-        partyName: documentType === 'item_ledger' ? null : partyCode ? null : partyNameIn(body),
+        partyName: !PARTY_TYPES.has(documentType) || partyCode ? null : partyNameIn(body),
         // For the item ledger the name in front of "ka item ledger" is a PRODUCT, so it goes
         // to the stock list rather than being looked up among the customers.
         itemName: documentType === 'item_ledger' ? itemNameIn(body) : null,
@@ -612,7 +783,7 @@ export function detectIntent(text: string): Intent {
       from: period?.from ?? null,
       to: period?.to ?? null,
       partyCode,
-      partyName: near === 'item_ledger' ? null : partyCode ? null : partyNameIn(body),
+      partyName: !PARTY_TYPES.has(near) || partyCode ? null : partyNameIn(body),
       itemName: near === 'item_ledger' ? itemNameIn(body) : null,
     };
   }
@@ -642,13 +813,19 @@ export function detectIntent(text: string): Intent {
    */
   if (/\b(receivables?|who\s+owes|owes?\s+me|lena\s+hai|outstanding)\b/i.test(lower)) {
     const period = parsePeriod(body);
+    const partyCode = parsePartyCode(body);
     return {
       kind: 'report',
       documentType: 'customer_ledger',
       from: period?.from ?? null,
       to: period?.to ?? null,
-      partyCode: parsePartyCode(body),
-      partyName: null,
+      partyCode,
+      /*
+       * EVERY customer. "Send me list of receivables" and "who owes me" ask about all of them;
+       * answering "Which customer?" — as these did once a party ledger began asking — turned
+       * the plainest question a business has into a question back.
+       */
+      partyName: partyCode ? null : 'all',
       itemName: null,
     };
   }
@@ -731,11 +908,72 @@ export function detectIntent(text: string): Intent {
    * issued it.
    */
   if (named) {
-    const documentNumber = /\b(\d{1,10})\b/.exec(body)?.[1];
+    const documentNumber = documentNumberAfter(lower, named[0]);
     if (documentNumber) {
       return { kind: 'document', documentType: named[2], displayName: named[1], documentNumber };
     }
+    // A period and no number: every invoice of that period, which is the book of them.
+    const period = parsePeriod(body);
+    const book = BOOK_FOR[named[2]];
+    if (period && book) {
+      return {
+        kind: 'report',
+        documentType: book,
+        from: period.from,
+        to: period.to,
+        partyCode: null,
+        partyName: null,
+        itemName: null,
+      };
+    }
     return { kind: 'need_document_number', displayName: named[1] };
+  }
+
+  /*
+   * "Sheglam product kitni qty hai?" — how much of one item is in stock. The item ledger is
+   * what shows it, so that is what is sent, for the item named (resolved or refused like any
+   * other item name).
+   */
+  const stockOf =
+    /^\s*(?:mujhe\s+)?([A-Za-z0-9][A-Za-z0-9 .'&-]{1,60}?)\s+(?:ki\s+|ka\s+|ke\s+)?(?:kitni|kitna|kitne|how\s+much|available)\s+(?:qty|quantity|stock|maal|pcs|pieces)\b/i.exec(
+      body,
+    ) ?? /^\s*([A-Za-z0-9][A-Za-z0-9 .'&-]{1,60}?)\s+(?:ki|ka|ke)\s+(?:qty|quantity|stock)\b/i.exec(body);
+  if (stockOf) {
+    const words = withoutProductWord(
+      stockOf[1]
+        .trim()
+        .split(/\s+/)
+        .filter(word => !LEDGER_NOISE.test(word)),
+    );
+    if (words.length) {
+      return {
+        kind: 'report',
+        documentType: 'item_ledger',
+        from: null,
+        to: null,
+        partyCode: null,
+        partyName: null,
+        itemName: words.join(' '),
+      };
+    }
+  }
+
+  /*
+   * "Ahmed Bolten ka de": a name and "give", with the thing left unsaid. In these chats it is
+   * always the ledger, and the name still has to resolve to one account before anything is
+   * sent — an unknown name is answered "I could not find", never with the whole book.
+   */
+  const unsaid = partyNameIn(body);
+  if (unsaid && /\bka\s+(?:de|do|dedo|de\s+do|bhejo|bhej\s+do|send)\s*[.!]?\s*$/i.test(lower)) {
+    return {
+      kind: 'report',
+      documentType: 'general_ledger',
+      from: null,
+      to: null,
+      partyCode: null,
+      partyName: unsaid,
+      itemName: null,
+    };
   }
 
   return { kind: 'help' };
@@ -817,8 +1055,32 @@ function summariseToolResult(raw: string, isError: boolean): string {
       const missing = str(row.missing);
       const total = str(row.total);
       const head = `*${str(row.document) ?? 'Draft'} ${str(row.reference) ?? ''}*`.trim();
-      if (missing) return `${head} started.${total ? ` Total so far: ${total}.` : ''}\n\nStill needed: ${missing}.`;
-      return `${head} is ready.${total ? ` Total: ${total}.` : ''}\n\nReply *submit* to send it for approval, or *cancel* to drop it.`;
+      /*
+       * What was understood, read back — the customer and every line — so a misread name or
+       * quantity is caught here rather than on the approval screen.
+       */
+      const details = Array.isArray(row.details)
+        ? (row.details as Array<Record<string, unknown>>).map(d => `${str(d.label) ?? ''}: ${str(d.value) ?? ''}`)
+        : [];
+      const lines = Array.isArray(row.lineItems)
+        ? (row.lineItems as Array<Record<string, unknown>>).map(
+            l => `• ${str(l.description) ?? ''} — ${str(l.quantity) ?? ''} × ${str(l.rate) ?? ''}`,
+          )
+        : [];
+      const said = [...details, ...lines].join('\n');
+      const dropped = str(row.replaced) ? `\n\n_${str(row.replaced)} was not finished, so it has been dropped._` : '';
+      if (missing) {
+        return (
+          `${head} started.${total ? ` Total so far: ${total}.` : ''}` +
+          (said ? `\n\n${said}` : '') +
+          `\n\nStill needed: ${missing}.${dropped}`
+        );
+      }
+      return (
+        `${head} is ready.${total ? ` Total: ${total}.` : ''}` +
+        (said ? `\n\n${said}` : '') +
+        `\n\nReply *submit* to send it for approval, or *cancel* to drop it.${dropped}`
+      );
     }
     if ('submitted' in row) {
       if (row.submitted !== true) return str(row.message) ?? 'It could not be submitted.';
@@ -1063,6 +1325,8 @@ export function parsePartialLine(text: string): { description: string; quantity:
     .trim()
     .replace(/^\s*\(?\d{1,2}\s*[.)\]]\s+/, '');
   if (!body || /\b(at|@)\b/i.test(body)) return null;
+  // "2026 09 07" is a date typed at the date question, not 2,026 of something called "09 07".
+  if ((body.match(/[a-z]/gi) ?? []).length < 2) return null;
 
   const unit = '(pcs|pc|piece|pieces|kg|g|box|boxes|dozen|meter|metre|m|ltr|litre|liter)';
   // "4pcs led bulb" / "250 cotton fabric"
@@ -1072,6 +1336,106 @@ export function parsePartialLine(text: string): { description: string; quantity:
   const trailing = new RegExp(`^(.{2,60}?)\\s+(\\d+(?:\\.\\d+)?)\\s*${unit}?$`, 'i').exec(body);
   if (trailing) return { description: trailing[1].trim(), quantity: trailing[2], unit: trailing[3] ?? null };
   return null;
+}
+
+/**
+ * Every line in a message that may hold several: complete ones to add, unpriced ones to name.
+ *
+ * Split on new lines, and within a line on each "<qty> <item> at <rate>", so a list typed as
+ * one message — or two items run together on one line — adds every item rather than none.
+ */
+export function parseLineItems(text: string): {
+  complete: Array<{ description: string; quantity: string; rate: string }>;
+  unpriced: string[];
+} {
+  const complete: Array<{ description: string; quantity: string; rate: string }> = [];
+  const unpriced: string[] = [];
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const lineText = raw.trim().replace(/^\s*\(?\d{1,2}\s*[.)\]]\s+/, '');
+    if (!lineText) continue;
+    const runs = [
+      ...lineText.matchAll(
+        /(\d+(?:\.\d+)?)\s*(?:pcs|pc|piece|pieces|box|boxes|kg|dozen)?\s+([A-Za-z][A-Za-z0-9 .'&-]*?)\s+(?:at|@)\s*(?:rs\.?\s*)?(\d+(?:\.\d+)?)(?:\s*(?:rs|\/-|each))?/gi,
+      ),
+    ];
+    if (runs.length) {
+      for (const run of runs) complete.push({ quantity: run[1], description: run[2].trim(), rate: run[3] });
+      continue;
+    }
+    const single = parseLineItem(lineText);
+    if (single) {
+      complete.push(single);
+      continue;
+    }
+    const partial = parsePartialLine(lineText);
+    if (partial) unpriced.push(`${partial.quantity} ${partial.description}`);
+  }
+  return { complete, unpriced };
+}
+
+/**
+ * The party and lines in a "create" message: "create a sale invoice for Ahmed Traders, 10
+ * shirts at 1500", "create sale bill for this customer 0107010". Null when it names neither.
+ */
+export function composeDetails(text: string): {
+  partyName: string | null;
+  partyCode: string | null;
+  items: Array<{ name: string; qty: string; rate: string }>;
+} | null {
+  const code = /\bfor\s+(?:this\s+)?(?:customer|supplier|party|vendor)?\s*(\d{6,10})\b/i.exec(text);
+  const named = code ? null : /\bfor\s+([A-Za-z][A-Za-z .'&-]{1,60}?)\s*(?=,|\n|$|\s+\d)/i.exec(text);
+  const partyName = named && !/^(this|the|a|an|me|my)\b/i.test(named[1].trim()) ? named[1].trim() : null;
+  const rest = text
+    .slice((code ?? named)?.index ?? 0)
+    .split(/,|\n/)
+    .slice(1)
+    .join('\n');
+  const items = parseLineItems(rest).complete.map(line => ({
+    name: line.description,
+    qty: line.quantity,
+    rate: line.rate,
+  }));
+  if (!partyName && !code && !items.length) return null;
+  return { partyName, partyCode: code ? code[1] : null, items };
+}
+
+/** "Send me the sales invoice of humza" → "humza": the person a document was asked for. */
+function nameBesideDocument(text: string): string | null {
+  const stripped = text
+    .replace(/\b(?:sales?|purchase|digital)?\s*(?:invoi[a-z]{0,3}|inv|bills?|returns?|vouchers?)\b/gi, ' ')
+    .replace(/\b(?:payment|receive|receipt)\b/gi, ' ');
+  const words = stripped
+    .split(/\s+/)
+    .filter(
+      word =>
+        /^[A-Za-z]{3,}$/.test(word) &&
+        !LEDGER_NOISE.test(word) &&
+        !/^(salam|hey|hello|hi|dede|chahiye|please)$/i.test(word),
+    );
+  return words.length >= 1 && words.length <= 3 ? words.join(' ') : null;
+}
+
+/** The bot's last reply in this conversation, or ''. */
+function lastAssistantText(messages: ReadonlyArray<{ role: string; content: string }>): string {
+  return [...messages].reverse().find(m => m.role === 'assistant')?.content ?? '';
+}
+
+/**
+ * A bare price answering "How much per piece for *cotton*? Send it like this: _250 cotton at
+ * 600_" — "60", "AT 60 RS", "rs 60", "60/-". The item and quantity are read back out of the
+ * question, so the answer completes the line it was about.
+ */
+export function priceAnswer(
+  asked: string,
+  reply: string,
+): { description: string; quantity: string; rate: string } | null {
+  const question = /How much per \w+ for \*([^*]+)\*\?[\s\S]*?_(\d+(?:\.\d+)?) /.exec(asked);
+  if (!question) return null;
+  const price =
+    /^\s*(?:at|@|rate|price)?\s*(?:rs\.?|pkr)?\s*(\d+(?:\.\d+)?)\s*(?:rs|rupees|rupay|pkr|\/-|each|per\s+\w+)?\s*$/i.exec(
+      reply,
+    );
+  return price ? { description: question[1].trim(), quantity: question[2], rate: price[1] } : null;
 }
 
 export function parseLineItem(text: string): { description: string; quantity: string; rate: string } | null {

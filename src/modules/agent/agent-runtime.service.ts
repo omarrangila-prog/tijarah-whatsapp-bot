@@ -38,7 +38,13 @@ import { buildSystemPrompt } from './agent-prompt';
 import {
   advance,
   awaitedChoice,
+  awaitedDocument,
   awaitedParty,
+  awaitedPartyPeriod,
+  documentNumberPrompt,
+  isChitChat,
+  readDocumentNumber,
+  voucherPick,
   MENU_TRIGGER,
   readChoice,
   rootMenu,
@@ -46,6 +52,8 @@ import {
   type MenuReport,
 } from './client-menu';
 import { toJsonSchema } from './zod-to-json-schema';
+import { detectIntent } from './mock-reasoning.provider';
+import { accountKind, ledgerForKind } from '../whatsapp-jobs/tenancy/account-kind';
 
 /**
  * The agent turn.
@@ -360,17 +368,46 @@ export class AgentRuntime {
     const shortlist = awaitedChoice(last?.replyText ?? null);
     if (shortlist) {
       const picked = readChoice(text);
-      const name = picked ? shortlist.names[picked - 1] : undefined;
-      if (name) {
-        return shortlist.ledger === 'item_ledger'
-          ? this.runItemLedger(message, name)
-          : this.runPartyLedger(message, 'general_ledger', name);
+      const option = picked ? shortlist.options[picked - 1] : undefined;
+      if (option) {
+        /*
+         * By CODE where the line carries one. By name, three accounts all called "USMAN"
+         * matched all three again and the same question came back for ever.
+         */
+        const period = awaitedPartyPeriod(last?.replyText ?? null);
+        if (shortlist.ledger === 'item_ledger' || option.item) {
+          return this.runItemLedger(message, option.name, option.code, period);
+        }
+        return option.code
+          ? this.runPartyLedger(message, ledgerForKind(accountKind(option.code)), option.name, option.code, period)
+          : this.runPartyLedger(message, 'general_ledger', option.name, undefined, period);
       }
     }
 
+    /*
+     * A number answering "Which Sale Invoice? Send me its number". Alone, "179" names no
+     * document, so without reading the question back the person reached the help list.
+     */
+    const voucher = voucherPick(last?.replyText ?? null, text);
+    if (voucher) return documentNumberPrompt(voucher);
+
+    const awaitedDoc = awaitedDocument(last?.replyText ?? null);
+    const docNumber = awaitedDoc ? readDocumentNumber(text) : null;
+    if (awaitedDoc && docNumber) {
+      const all = await this.chatRequestable();
+      const doc = all.find(r => r.displayName === awaitedDoc);
+      if (doc) return this.runDocument(message, doc.documentType, doc.displayName, docNumber);
+    }
+
+    /*
+     * Only a reply that LOOKS like a name answers "Which customer?". Anything else is taken as
+     * what it is: "Income statement bhejo" is a new request, not a customer called that, and
+     * "haan bhai" is conversation. Both were searched for as names on a live chat.
+     */
     const awaited = awaitedParty(last?.replyText ?? null);
-    if (awaited && !readChoice(text)) {
-      return this.runPartyLedger(message, awaited, text);
+    if (awaited && !readChoice(text) && !isChitChat(text) && detectIntent(text).kind === 'help') {
+      const period = awaitedPartyPeriod(last?.replyText ?? null);
+      return this.runPartyLedger(message, awaited, text, undefined, period);
     }
 
     const action = advance(stepFor(last?.replyText ?? null), text, reports);
@@ -391,6 +428,8 @@ export class AgentRuntime {
         name: 'RequestAccountingReport',
         input: {
           documentType: action.documentType,
+          // "Who owes me money": every customer, said by choosing the option rather than typed.
+          ...(action.everyone ? { partyName: 'all' } : {}),
           ...(action.from ? { from: action.from } : {}),
           ...(action.to ? { to: action.to } : {}),
         },
@@ -403,6 +442,20 @@ export class AgentRuntime {
     if (outcome.isError || outcome.record.decision === 'denied') {
       return `${name} could not be prepared. ${outcome.record.reason ?? 'Please try again in a moment.'}`;
     }
+    /*
+     * The tool's own question, passed on. "Who owes me money" → a period reaches the customer
+     * ledger with nobody named, and the tool asks "Which customer?" — which this path used to
+     * drop, so the first option on the menu answered with silence.
+     */
+    const asked = ((): string | null => {
+      try {
+        const parsed = JSON.parse(outcome.content) as Record<string, unknown>;
+        return parsed.queued === false && typeof parsed.reason === 'string' ? parsed.reason : null;
+      } catch {
+        return null;
+      }
+    })();
+    if (asked) return asked;
     /*
      * Nothing on success: the PDF is the answer.
      *
@@ -426,12 +479,15 @@ export class AgentRuntime {
     message: NormalizedAgentMessage,
     documentType: string,
     partyName: string,
+    partyCode?: string,
+    period?: { from: string; to: string } | null,
   ): Promise<string | null> {
+    const dates = period ? { from: period.from, to: period.to } : {};
     const outcome = await this.executeCall(
       {
         id: `party.${Date.now()}`,
         name: 'RequestAccountingReport',
-        input: { documentType, partyName },
+        input: partyCode ? { documentType, partyCode, ...dates } : { documentType, partyName, ...dates },
       },
       message,
       this.toolsFor(message.senderRole, false),
@@ -451,9 +507,21 @@ export class AgentRuntime {
   }
 
   /** The item ledger for a product the person picked off a shortlist. */
-  private async runItemLedger(message: NormalizedAgentMessage, itemName: string): Promise<string | null> {
+  private async runItemLedger(
+    message: NormalizedAgentMessage,
+    itemName: string,
+    itemCode?: string | null,
+    period?: { from: string; to: string } | null,
+  ): Promise<string | null> {
+    const dates = period ? { from: period.from, to: period.to } : {};
     const outcome = await this.executeCall(
-      { id: `item.${Date.now()}`, name: 'RequestAccountingReport', input: { documentType: 'item_ledger', itemName } },
+      {
+        id: `item.${Date.now()}`,
+        name: 'RequestAccountingReport',
+        input: itemCode
+          ? { documentType: 'item_ledger', itemCode, ...dates }
+          : { documentType: 'item_ledger', itemName, ...dates },
+      },
       message,
       this.toolsFor(message.senderRole, false),
     );
@@ -479,23 +547,65 @@ export class AgentRuntime {
    * and returns exactly this list.
    */
   private async menuReports(): Promise<MenuReport[]> {
+    /*
+     * Reports only. Invoices and vouchers are chat-requestable too, but they are fetched by
+     * NUMBER: on this list "17. Sale Invoice" could only fail ("could not be prepared"), and
+     * the seven extra rows pushed the Vendor Ledger off the end. They have their own option,
+     * "Get an invoice or voucher", which asks for the number.
+     */
+    return (await this.chatRequestable()).filter(r => !r.needsNumber);
+  }
+
+  /** Everything a client may ask for in chat — reports and documents — as the registry lists it. */
+  private async chatRequestable(): Promise<Array<MenuReport & { needsNumber: boolean }>> {
     const tool = this.registry.list().find(t => t.name === 'ListAccountingReports');
     if (!tool) return [];
     try {
       const key = await this.resolveAgentKey(false);
       if (!key) return [];
       const result = (await this.invokeWithKeyRecovery(tool, {}, key)) as {
-        reports?: Array<{ documentType: string; name: string; optionalParameters?: string[] }>;
+        reports?: Array<{
+          documentType: string;
+          name: string;
+          requiredParameters?: string[];
+          optionalParameters?: string[];
+        }>;
       };
       return (result.reports ?? []).map(row => ({
         documentType: row.documentType,
         displayName: row.name,
         datedByDefault: (row.optionalParameters ?? []).includes('from'),
+        needsNumber: (row.requiredParameters ?? []).includes('documentNumber'),
       }));
     } catch (error) {
       this.logger.warn(`menu could not list reports: ${describeToolError(error)}`);
       return [];
     }
+  }
+
+  /** An invoice or voucher by the number the person just gave. The PDF is the reply. */
+  private async runDocument(
+    message: NormalizedAgentMessage,
+    documentType: string,
+    displayName: string,
+    documentNumber: string,
+  ): Promise<string | null> {
+    const outcome = await this.executeCall(
+      { id: `doc.${Date.now()}`, name: 'RequestAccountingReport', input: { documentType, documentNumber } },
+      message,
+      this.toolsFor(message.senderRole, false),
+    );
+    if (outcome.record.decision === 'denied') return outcome.record.reason ?? null;
+    if (outcome.isError) return `${displayName} ${documentNumber} could not be prepared. Please try again in a moment.`;
+    const parsed = ((): Record<string, unknown> | null => {
+      try {
+        return JSON.parse(outcome.content) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })();
+    if (parsed && parsed.queued === false && typeof parsed.reason === 'string') return parsed.reason;
+    return '';
   }
 
   private get registry(): ToolRegistryService {
@@ -835,6 +945,7 @@ export class AgentRuntime {
           // Resolved lazily: DraftService lives in the jobs module, and eager injection here
           // would pull that graph into this constructor.
           hasOpenDraft: await this.hasOpenDraft(message.senderPhone),
+          openDraftSummary: draftSummary,
         },
       });
 
