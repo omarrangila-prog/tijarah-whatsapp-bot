@@ -134,6 +134,11 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           .max(190)
           .optional()
           .describe('For the item ledger: an item named rather than coded, e.g. "Blue Shirt".'),
+        documentNumber: z
+          .string()
+          .max(40)
+          .optional()
+          .describe('For an invoice or voucher: its number as the accounting system shows it, e.g. "179".'),
         partyCode: z
           .string()
           .max(40)
@@ -177,6 +182,14 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
         }
 
         const parameters: Record<string, unknown> = { ...deps.users().toDocumentParameters(tenant) };
+        /*
+         * An invoice or voucher, by number.
+         *
+         * Safe for the same reason everything else here is: `companyId` and `branch` come
+         * from the ASKING number's own registration, which this line has just applied, so
+         * the number is looked up inside that client's own books and nowhere else.
+         */
+        if (input.documentNumber?.trim()) parameters.documentNumber = input.documentNumber.trim();
         if (input.from) parameters.from = input.from;
         if (input.to) parameters.to = input.to;
         /*
@@ -281,7 +294,7 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           expense_ledger: 'expense account',
         };
         const who = PARTY_LEDGERS[resolvedType.documentType];
-        if (who && !parameters.partyCode && !wantsEveryone(input.partyName)) {
+        if (who && !parameters.partyCode && !parameters.documentNumber && !wantsEveryone(input.partyName)) {
           return {
             queued: false,
             needsParty: who,
@@ -313,7 +326,7 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
          */
         const idempotencyKey =
           `chat-${tenant.sid}-${tenant.grp}-${resolvedType.documentType}-${recipient}-` +
-          `${keyPart(parameters.partyCode)}-${keyPart(parameters.itemCode)}-` +
+          `${keyPart(parameters.partyCode)}-${keyPart(parameters.itemCode)}-${keyPart(parameters.documentNumber)}-` +
           `${keyPart(parameters.from)}-${keyPart(parameters.to)}-${minute}`;
 
         try {

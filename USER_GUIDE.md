@@ -225,9 +225,24 @@ For the four in bold the bot asks who or what before sending — a client who sa
 _"customer ledger bhejo"_ is asked **"Which customer?"** rather than being sent every
 customer's balances. Answer with the name, or send **all** for everyone.
 
-**Documents Tijarah sends** (these arrive from Tijarah Books, and cannot be fetched by asking
-in chat — an invoice belongs to one customer): Sale Invoice, Purchase Invoice, Digital Invoice,
-Sale Return, Purchase Return, Payment Voucher, Receive Voucher.
+**The 7 documents, asked for by number**
+
+Sale Invoice · Purchase Invoice · Digital Invoice · Sale Return · Purchase Return ·
+Payment Voucher · Receive Voucher
+
+A client sends the type and the number — _"sale invoice 179"_, _"receive voucher 54"_, or just
+_"invoice 179"_ — and the PDF comes back. Without a number the bot asks for one. These also
+arrive on their own whenever Tijarah Books queues one.
+
+> ⚠ **Only register businesses, never their customers.**
+>
+> A client only ever sees their own company's books: the company is taken from the number
+> they are registered to, so a client of one company asking for "invoice 179" gets _their_
+> 179 and can never reach another company's. That protection works between businesses.
+>
+> It does **not** work inside one. If you register an end customer — someone your client
+> sells to — they could type any number and read that client's other invoices. Register the
+> business owner and their staff; leave their customers off.
 
 Tell your clients:
 

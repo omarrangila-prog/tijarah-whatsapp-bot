@@ -15,7 +15,10 @@ describe('messages from the 8 October session', () => {
 
     it('does not interfere once the kind IS named', () => {
       expect(detectIntent('create receive voucher').kind).toBe('create_start');
-      expect(detectIntent('receive voucher 54').kind).toBe('need_document_number');
+      // With a number it is fetched, from the asking client's own company.
+      const numbered = detectIntent('receive voucher 54');
+      expect(numbered.kind).toBe('document');
+      expect(numbered.kind === 'document' && numbered.documentNumber).toBe('54');
     });
   });
 

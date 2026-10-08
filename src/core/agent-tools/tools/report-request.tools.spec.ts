@@ -47,12 +47,13 @@ describe('RequestAccountingReport', () => {
       },
     } as unknown as WhatsAppJobsService;
     const users = {
-      resolve: (phone: string) =>
+      resolve: jest.fn((phone: string) =>
         Promise.resolve(
           phone === UNREGISTERED
             ? null
             : { whatsAppNo: phone, sid: 1006, grp: 'GR', aYear: '2026', displayName: 'Test' },
         ),
+      ),
       toDocumentParameters: (t: { sid: number; grp: string; aYear: string }) => ({
         companyId: String(t.sid),
         branch: t.grp,
@@ -71,6 +72,7 @@ describe('RequestAccountingReport', () => {
       request: byName('RequestAccountingReport'),
       findCustomer: byName('FindCustomerByName'),
       parties,
+      users,
       created,
     };
   };
@@ -291,6 +293,48 @@ describe('RequestAccountingReport', () => {
      */
     expect(second.queued).toBe(true);
     expect(JSON.stringify(second)).not.toContain('idempotencyKey');
+  });
+
+  it('fetches an invoice by number, from the asking client\u2019s own company', async () => {
+    const { request, created } = build();
+    await run(request, { senderPhone: '923001234567', documentType: 'general_ledger', documentNumber: '179' });
+
+    expect(created[0].parameters).toMatchObject({ documentNumber: '179', companyId: '1006' });
+  });
+
+  it('never lets a document number cross into another company', async () => {
+    /*
+     * THE fence that makes documents-in-chat safe. The company is taken from the asking
+     * number's registration, never from the message, so two clients asking for "179" get
+     * their OWN company's 179 — different documents. Were this to regress, one business
+     * would be able to read another's invoices by guessing numbers.
+     */
+    const { request, created, users } = build();
+    (users.resolve as jest.Mock).mockResolvedValue({
+      whatsAppNo: '923161608330',
+      sid: 1042,
+      grp: 'GR',
+      aYear: '2026',
+      displayName: 'Other Company',
+    });
+
+    await run(request, { senderPhone: '923161608330', documentType: 'general_ledger', documentNumber: '179' });
+
+    expect(created[0].parameters).toMatchObject({ documentNumber: '179', companyId: '1042' });
+    expect(created[0].parameters).not.toMatchObject({ companyId: '1006' });
+  });
+
+  it('does not ask "which customer?" when a document number was given', async () => {
+    // The question is for a party ledger with nobody named; a numbered document names itself.
+    const { request, created } = build();
+    const result = await run(request, {
+      senderPhone: '923001234567',
+      documentType: 'customer_ledger',
+      documentNumber: '179',
+    });
+
+    expect(result.queued).toBe(true);
+    expect(created).toHaveLength(1);
   });
 
   it('refuses a number that is not registered to a company', async () => {

@@ -25,7 +25,7 @@ describe('messages real clients sent', () => {
     });
   });
 
-  describe('a document named in chat is explained, not answered with a menu', () => {
+  describe('a document named in chat', () => {
     it.each([
       ['Send me sales invoice', 'Sale Invoice'],
       ['Daniyal bhai sales invoice', 'Sale Invoice'],
@@ -36,14 +36,16 @@ describe('messages real clients sent', () => {
       expect(intent.kind === 'need_document_number' && intent.displayName).toBe(displayName);
     });
 
-    it('answers the same way when the number IS given', () => {
+    it('fetches it once the number IS given', () => {
       /*
-       * A document by number is deliberately not reachable from a conversation — invoice 179
-       * belongs to one customer, and any client quoting the number would receive it. So
-       * "sale invoice 179" gets the same explanation as "sales invoice": asking for a number
-       * and then not accepting it was the part that read as broken.
+       * Opened up on 8 October: every registered number is a BUSINESS asking about its own
+       * books, and the company comes from that registration rather than the message, so an
+       * invoice number can only ever address the asking client's own documents.
        */
-      expect(kindOf('sale invoice 179')).toBe('need_document_number');
+      const intent = detectIntent('sale invoice 179');
+      expect(intent.kind).toBe('document');
+      expect(intent.kind === 'document' && intent.documentNumber).toBe('179');
+      expect(intent.kind === 'document' && intent.documentType).toBe('sale_invoice');
     });
   });
 

@@ -185,11 +185,23 @@ describe('Tijarah Books Phase One specification', () => {
     expect(row.enabled).toBe(true);
 
     /*
-     * Only reports may be asked for in a WhatsApp conversation. An invoice belongs to a named
-     * customer and needs a document number; reachable from chat it becomes a way for anyone on
-     * the allowlist to read someone else's document.
+     * Every Tijarah type may be asked for in a WhatsApp conversation (8 October 2026).
+     *
+     * This used to be ledgers only, on the reasoning that an invoice belongs to a named
+     * customer and chat access would let anyone on the allowlist read someone else's. That
+     * reasoning assumed the allowlist might hold END CUSTOMERS. It holds BUSINESSES: every
+     * registered number is a company asking about its own books.
+     *
+     * What makes it safe is the fence enforced on every request — `companyId` and `branch`
+     * come from the asking number's own registration, never from the message — so a client
+     * of company 1042 builds `/internal/pdf/SL/1042/...` and cannot address 1006's
+     * documents. Verified end to end: two clients asking for "sale invoice 179" received
+     * their own companies' invoice 179, which are different documents.
+     *
+     * The assumption, not the mechanism, is what to re-check: registering an end customer
+     * would let them read that client's other invoices by guessing numbers.
      */
-    expect(row.chatRequestable).toBe(entry.type.endsWith('_ledger'));
+    expect(row.chatRequestable).toBe(true);
   });
 
   it('builds the exact URL the specification shows, for a document', async () => {

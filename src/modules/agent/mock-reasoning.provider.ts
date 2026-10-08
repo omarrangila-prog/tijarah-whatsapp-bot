@@ -245,6 +245,14 @@ export class MockReasoningProvider implements ReasoningProvider {
             'Send the number, or say _create payment voucher_.',
         );
 
+      case 'document':
+        return this.callIfAvailable(
+          available,
+          'RequestAccountingReport',
+          { documentType: intent.documentType, documentNumber: intent.documentNumber },
+          '',
+        );
+
       case 'need_document_number':
         /*
          * An invoice is NOT fetchable from a conversation, and saying so is the honest reply.
@@ -355,6 +363,8 @@ type Intent =
   | { kind: 'create_cancel' }
   /** A document named without its number: ask for the number rather than offering the menu. */
   | { kind: 'need_document_number'; displayName: string }
+  /** One document, by its number, from the asking client's own company. */
+  | { kind: 'document'; documentType: string; displayName: string; documentNumber: string }
   /** "voucher", with no kind said: payment or receive? */
   | { kind: 'which_voucher' }
   | { kind: 'help' };
@@ -427,15 +437,16 @@ function partyNameIn(body: string): string | null {
 }
 
 /** Documents a person asks for by number, for the "which number?" reply when they omit it. */
-const DOCUMENT_BY_NUMBER: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\bdigital\s+invoice\b/, 'Digital Invoice'],
-  [/\bsales?\s+return\b/, 'Sale Return'],
-  [/\bpurchase\s+return\b/, 'Purchase Return'],
-  [/\bsales?\s+invoice\b|\bsale\s+bill\b/, 'Sale Invoice'],
-  [/\bpurchase\s+invoice\b|\bpurchase\s+bill\b/, 'Purchase Invoice'],
-  [/\bpayment\s+voucher\b/, 'Payment Voucher'],
-  [/\breceive\s+voucher\b|\breceipt\s+voucher\b/, 'Receive Voucher'],
-  [/\binvoice\b|\bbill\b/, 'invoice'],
+const DOCUMENT_BY_NUMBER: ReadonlyArray<readonly [RegExp, string, string]> = [
+  [/\bdigital\s+invoice\b/, 'Digital Invoice', 'digital_invoice'],
+  [/\bsales?\s+return\b/, 'Sale Return', 'sale_return'],
+  [/\bpurchase\s+return\b/, 'Purchase Return', 'purchase_return'],
+  [/\bsales?\s+invoice\b|\bsale\s+bill\b/, 'Sale Invoice', 'sale_invoice'],
+  [/\bpurchase\s+invoice\b|\bpurchase\s+bill\b/, 'Purchase Invoice', 'purchase_invoice'],
+  [/\bpayment\s+voucher\b/, 'Payment Voucher', 'payment_voucher'],
+  [/\breceive\s+voucher\b|\breceipt\s+voucher\b/, 'Receive Voucher', 'receive_voucher'],
+  // Bare "invoice"/"bill": a sale invoice is what a business means by it nine times in ten.
+  [/\binvoice\b|\bbill\b/, 'Sale Invoice', 'sale_invoice'],
 ];
 
 const REPORT_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -450,8 +461,10 @@ const REPORT_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bcash\s*(and|&|n)?\s*bank\b/, 'cash_bank_book'],
   // The four reports behind the host's SP code. Returns are matched before their book, because
   // "sale return report" contains "sale" and would otherwise answer with the sales book.
-  [/\bsale\s+return\b/, 'sale_return_report'],
-  [/\bpurchase\s+return\b/, 'purchase_return_report'],
+  // The RETURNS need the word "report", because "sale return 3" is return document 3 and
+  // "sale return report" is the period summary — two different documents, one phrase apart.
+  [/\bsales?\s+returns?\s+(report|book|summary)\b/, 'sale_return_report'],
+  [/\bpurchase\s+returns?\s+(report|book|summary)\b/, 'purchase_return_report'],
   [/\bsales?\s+book\b|\bsales?\s+report\b/, 'sales_book_report'],
   [/\bpurchase\s+book\b|\bpurchase\s+report\b/, 'purchase_book_report'],
   [/\bgeneral\s+ledger\b|\bgl\b/, 'general_ledger'],
@@ -676,19 +689,54 @@ export function detectIntent(text: string): Intent {
     return { kind: 'which_voucher' };
   }
 
+  /*
+   * A bare "sale return" with no number and no "report": the period summary is what a person
+   * means, since a specific return would have been named by its number.
+   */
+  if (/\bsales?\s+returns?\b/.test(lower) && !/\d/.test(body)) {
+    const period = parsePeriod(body);
+    return {
+      kind: 'report',
+      documentType: 'sale_return_report',
+      from: period?.from ?? null,
+      to: period?.to ?? null,
+      partyCode: null,
+      partyName: null,
+      itemName: null,
+    };
+  }
+  if (/\bpurchase\s+returns?\b/.test(lower) && !/\d/.test(body)) {
+    const period = parsePeriod(body);
+    return {
+      kind: 'report',
+      documentType: 'purchase_return_report',
+      from: period?.from ?? null,
+      to: period?.to ?? null,
+      partyCode: null,
+      partyName: null,
+      itemName: null,
+    };
+  }
+
   const named = DOCUMENT_BY_NUMBER.find(([pattern]) => pattern.test(lower));
   // Only when no number was given. "sale invoice 179" carries one and belongs to the ordinary
   // path; asking "which number?" for a message that just stated it reads as not listening.
   /*
-   * A document named, with or without a number.
+   * A document named, with or without its number.
    *
-   * Both get the same answer, because neither can be served: a document by number is
-   * deliberately not reachable from a conversation (invoice 179 belongs to ONE customer, and
-   * any client quoting the number would receive it). Previously only the no-number case was
-   * caught, so "sale invoice 179" fell to the generic fallback and looked like a failure
-   * rather than a boundary.
+   * With a number it is fetched; without, the number is asked for. Both are safe because the
+   * company comes from the ASKING number's own registration, never from the message: a
+   * request from a 1042 client builds `/internal/pdf/SL/1042/...` and cannot address another
+   * company's documents. An invoice number only means anything inside the company that
+   * issued it.
    */
-  if (named) return { kind: 'need_document_number', displayName: named[1] };
+  if (named) {
+    const documentNumber = /\b(\d{1,10})\b/.exec(body)?.[1];
+    if (documentNumber) {
+      return { kind: 'document', documentType: named[2], displayName: named[1], documentNumber };
+    }
+    return { kind: 'need_document_number', displayName: named[1] };
+  }
 
   return { kind: 'help' };
 }

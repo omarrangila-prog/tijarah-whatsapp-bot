@@ -171,7 +171,19 @@ export function TijarahClientSection({ chatId }: { chatId: string }) {
           ) : null}
 
           <label className="cc-stack" style={{ gap: '0.2rem' }}>
-            <span className="cc-hint">Business name</span>
+            {/*
+            * Said where the decision is made, not only in the guide.
+            *
+            * A registered number can ask for its company's invoices by number, so registering
+            * someone's CUSTOMER would let that customer read the business's other invoices.
+            * Between companies the fence holds; inside one it cannot.
+            */}
+          <span className="cc-hint" role="note">
+            ⚠ Register the business and its staff — not their customers. A client can ask for
+            any of their own company's invoices by number.
+          </span>
+
+          <span className="cc-hint">Business name</span>
             <input
               className="cc-input"
               value={form.name}

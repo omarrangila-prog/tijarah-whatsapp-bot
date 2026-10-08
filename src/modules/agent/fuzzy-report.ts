@@ -100,6 +100,9 @@ export const REPORT_WORD_SETS: ReadonlyArray<readonly [string, readonly string[]
   ['cash_bank_book', ['cash', 'book']],
   ['sales_book_report', ['sales', 'book']],
   ['purchase_book_report', ['purchase', 'book']],
-  ['sale_return_report', ['sale', 'return']],
-  ['purchase_return_report', ['purchase', 'return']],
+  // The returns need "report": "sale return 3" is return document 3, and the exact table
+  // above routes it by number. Matching on "sale return" alone sent somebody the period
+  // summary when they had named a specific document.
+  ['sale_return_report', ['sale', 'return', 'report']],
+  ['purchase_return_report', ['purchase', 'return', 'report']],
 ];
