@@ -74,8 +74,8 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
             found: 'none' as const,
             // Said plainly, because the next thing the person is asked for is the code.
             reason:
-              `No customer called "${input.name}" has been seen in your books yet. ` +
-              'A customer appears here once a document has been sent to them.',
+              `I could not find a customer called "${input.name}" in your accounts. ` +
+              'Please check the spelling, or give the account code.',
           };
         }
         if (match.kind === 'several') {
@@ -220,7 +220,8 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
               reason:
                 match.kind === 'one'
                   ? `"${match.party.name}" is known, but their account code could not be confirmed. Please give the code.`
-                  : `No customer called "${input.partyName}" has been seen in your books. Please give the account code.`,
+                  : `I could not find a customer called "${input.partyName}" in your accounts. ` +
+                    'Please check the spelling, or give the account code.',
             };
           }
         }
@@ -318,7 +319,14 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
           };
         } catch (error) {
           const detail = (error as { response?: { message?: string; jobId?: string } }).response;
-          if (detail?.jobId) return { queued: false, alreadyQueued: detail.jobId, reason: detail.message };
+          /*
+           * The same request twice inside a minute: the first one's document is already on
+           * its way, so this is a success from the person's point of view. It used to answer
+           * with the internal sentence "A job with this idempotencyKey already exists", which
+           * is a debugging line, not a reply — and worse, it arrived where the document was
+           * about to. Reported as queued so the caller stays silent and the PDF speaks.
+           */
+          if (detail?.jobId) return { queued: true, jobId: detail.jobId, note: 'Already queued; nothing to announce.' };
           throw error;
         }
       },

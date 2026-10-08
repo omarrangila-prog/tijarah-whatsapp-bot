@@ -190,6 +190,20 @@ describe('advance', () => {
     expect(MENU_TRIGGER.test('send')).toBe(true);
     expect(MENU_TRIGGER.test('bhejo')).toBe(true);
     expect(MENU_TRIGGER.test('menu')).toBe(true);
+    // A short politeness is still a bare greeting.
+    expect(MENU_TRIGGER.test('send please')).toBe(true);
+    expect(MENU_TRIGGER.test('hello bhai')).toBe(true);
+  });
+
+  it('a request that merely STARTS with a trigger word is not the menu', () => {
+    /*
+     * "Send me trail balance" begins with "send", and with a trailing \b on the pattern the
+     * menu swallowed it — a real request answered with a list of options, which is the one
+     * thing the menu must never do.
+     */
+    expect(MENU_TRIGGER.test('Send me trail balance')).toBe(false);
+    expect(MENU_TRIGGER.test('send me ledger')).toBe(false);
+    expect(MENU_TRIGGER.test('bhejo mujhe ledger')).toBe(false);
   });
 
   it('offers the eight durations the specification lists', () => {

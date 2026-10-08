@@ -30,6 +30,18 @@ describe('RequestAccountingReport', () => {
           report('item_ledger', 'Item Ledger'),
         ]),
       create: (input: Record<string, unknown>) => {
+        // Mirrors the real service: a repeated idempotencyKey is rejected with the existing
+        // job's id on the error, rather than creating a second job.
+        const keyOf = (row: Record<string, unknown>): string =>
+          typeof row.idempotencyKey === 'string' ? row.idempotencyKey : '';
+        const key = keyOf(input);
+        const seen = created.find(c => keyOf(c) === key);
+        if (seen) {
+          const error = Object.assign(new Error('duplicate'), {
+            response: { jobId: 'JOB-2001', message: 'A job with this idempotencyKey already exists.' },
+          });
+          return Promise.reject(error);
+        }
         created.push(input);
         return Promise.resolve({ reference: 'JOB-2001', status: 'PENDING' });
       },
@@ -262,6 +274,21 @@ describe('RequestAccountingReport', () => {
     expect(result.queued).toBe(false);
     expect(result.items).toHaveLength(2);
     expect(created).toHaveLength(0);
+  });
+
+  it('says nothing when the same report is asked for twice in a minute', async () => {
+    const { request } = build();
+    const args = { senderPhone: '923001234567', documentType: 'general_ledger' as const };
+    await run(request, args);
+    const second = await run(request, args);
+
+    /*
+     * The first one's document is already on its way, so this is a success from the person's
+     * point of view. It used to answer with "A job with this idempotencyKey already exists" —
+     * a debugging line, arriving right where the document was about to.
+     */
+    expect(second.queued).toBe(true);
+    expect(JSON.stringify(second)).not.toContain('idempotencyKey');
   });
 
   it('refuses a number that is not registered to a company', async () => {

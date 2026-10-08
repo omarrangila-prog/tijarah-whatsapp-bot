@@ -37,7 +37,16 @@ export type MenuStep =
   | { kind: 'period'; documentType: string }
   | { kind: 'dates'; documentType: string };
 
-export const MENU_TRIGGER = /^\s*(send|bhejo?|menu|start|hi|hello|help|salam|assalam|aoa|option|options|list)\b/i;
+/**
+ * A greeting or a bare "send", which opens the menu.
+ *
+ * Anchored at both ends, so only the word ON ITS OWN counts. With a trailing `\b` instead,
+ * "Send me trail balance" began with "send" and was answered with the menu rather than the
+ * report — the menu swallowing a real request, which is exactly what it must never do. A
+ * short trailing politeness ("send please", "hello bhai") is still just a greeting.
+ */
+export const MENU_TRIGGER =
+  /^\s*(send|bhejo?|menu|start|hi|hello|help|salam|assalam|aoa|option|options|list)[\s!.,]*(please|plz|bhai|yaar|ji)?[\s!.,]*$/i;
 
 /** Marks a message as one of this menu's, so the next reply can be read in context. */
 const TAGS: Record<string, string> = {
