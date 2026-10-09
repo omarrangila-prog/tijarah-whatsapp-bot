@@ -1,3 +1,4 @@
+import { correctSpelling } from './spelling';
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -497,7 +498,7 @@ import { documentNumberPrompt, isChitChat, rootOptionLines } from './client-menu
  * are excluded, so "send me the ledger" is not read as a customer called "send me the".
  */
 const LEDGER_NOISE =
-  /^(sent|snd|bhejdo|bhejiye|dijiye|dein|den|karo|kar|plzz|send|me|my|the|a|an|please|plz|bhej|bhejo|do|de|dedo|chahiye|mujhe|ka|ki|ke|k|is|this|that|for|of|full|all|total|complete|new|old|last|latest|report|statement|account|accounts|pls|kindly|need|want|get|give|show|aaj|tak|ab|today|till|date|upto|up|to|from|se|days?|day|month|months|year|years|saal|mahina|mahine|current|previous|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?)$/i;
+  /^(sent|snd|bhejdo|bhejiye|dijiye|dein|den|karo|kar|plzz|send|me|my|the|a|an|please|plz|bhej|bhejo|do|de|dedo|chahiye|mujhe|ka|ki|ke|k|is|this|that|for|of|full|all|total|complete|new|old|last|latest|report|statement|account|accounts|pls|kindly|need|want|get|give|show|aaj|kal|yesterday|tak|ab|today|till|date|only|sirf|bas|just|mera|meri|mere|apna|apni|apne|hamara|humara|kitna|kitni|kitne|hai|hain|batao|bata|dikhao|check|upto|up|to|from|se|days?|day|month|months|year|years|saal|mahina|mahine|current|previous|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?)$/i;
 
 function partyNameIn(body: string): string | null {
   const patterns = [
@@ -515,6 +516,9 @@ function partyNameIn(body: string): string | null {
     /([A-Za-z][A-Za-z .'&-]{1,60}?)\s+(?:ledger|khata|hisab|hisaab)\b/i,
     // "Ahmed Bolten ka de" — the thing itself left unsaid, which in these chats is the ledger.
     /^\s*([A-Za-z][A-Za-z .'&-]{1,60}?)\s+ka\s+(?:de|do|dedo|de\s+do|bhejo|bhej\s+do|send)\s*[.!]?\s*$/i,
+    // "customer ledger Ahmed" / "statement Usman" — the name AFTER the word, with nothing between.
+    // Last, so every pattern above wins; request and period words are filtered out as before.
+    /\b(?:ledger|statement|khata|hisab|hisaab)\s+([A-Za-z][A-Za-z .'&-]{1,60})\s*$/i,
   ];
   for (const [index, pattern] of patterns.entries()) {
     const match = pattern.exec(body);
@@ -692,7 +696,8 @@ function itemNameIn(body: string): string | null {
 }
 
 export function detectIntent(text: string): Intent {
-  const body = text.trim();
+  // Misspelled accounting words and Roman Urdu shorthands are put right first (spelling.ts).
+  const body = correctSpelling(text.trim());
   const lower = body.toLowerCase();
 
   /*
@@ -1178,7 +1183,7 @@ function paymentReferenceIn(text: string): string | null {
  *    you a copy", which reads as though the request had been accepted.
  */
 export function detectCustomerIntent(text: string): CustomerIntent {
-  const body = String(text ?? '').trim();
+  const body = correctSpelling(String(text ?? '').trim());
   const lower = body.toLowerCase();
 
   if (

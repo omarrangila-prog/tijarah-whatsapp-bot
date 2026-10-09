@@ -118,3 +118,10 @@ describe('parsePartyCode', () => {
     expect(parsePartyCode('trial balance')).toBeNull();
   });
 });
+
+describe('"kal" in a request for figures', () => {
+  it('is yesterday', () => {
+    expect(parsePeriod('kal ki sale', NOW)).toEqual({ from: '2026-10-06', to: '2026-10-06' });
+    expect(parsePeriod('yesterday sales book', NOW)).toEqual({ from: '2026-10-06', to: '2026-10-06' });
+  });
+});

@@ -117,6 +117,11 @@ export function parsePeriod(text: string, now: Date = wallClock()): Period | nul
     return { from: iso(day(year, 0, 1)), to: iso(now) };
   }
   if (/\b(today|aaj)\b/i.test(lower)) return { from: iso(now), to: iso(now) };
+  // "kal ki sale": in a request for figures, "kal" is yesterday (the books hold no tomorrow).
+  if (/\b(yesterday|kal)\b/i.test(lower)) {
+    const yesterday = new Date(now.getTime() - 86_400_000);
+    return { from: iso(yesterday), to: iso(yesterday) };
+  }
   /*
    * "all time", "poora saal", "shuru se" — everything. The books are kept by the year, so that
    * is the year so far; said in answer to "for which dates?", it must be read as one.
