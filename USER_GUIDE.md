@@ -237,8 +237,11 @@ shown in that question (_For: DANIYAL (0107059)_), so replying _4_ still sends D
 When a name fits more than one account — three accounts are all called _USMAN_ — the bot lists
 them with their account code (and phone, where there is one) and the client sends the number.
 When a name fits nothing, it offers the closest names instead: _"khuzema ahmed"_ →
-_"Did you mean KHUZEMA TRADEVIVE?"_. When a list is too long, typing more of the name narrows
-it (_"sheglam curler"_). Any dates asked for stay with the choice.
+_"Did you mean KHUZEMA TRADEVIVE?"_. It understands the usual Roman Urdu spellings of one name,
+so _"daniyaal"_ offers DANIYAL / DANYAL, _"khuzaima"_ KHUZEMA, _"mohd"_ MUHAMMAD and _"orio courier"_
+ORIO CURRIER, best match first, plus small typos. It never sends on such a guess: the client picks
+the number. When a list is too long, typing more of the name narrows it (_"sheglam curler"_). Any
+dates asked for stay with the choice.
 
 _"Last 30 days ki invoice"_ or _"January sales invoice"_ — invoices for a period, with no number —
 sends the **sales book** for that period (purchase invoices: the purchase book).
@@ -272,6 +275,11 @@ Tell your clients:
   (_all time_ works too). Dates written in the message (_"trial balance last month"_) skip the
   question. An invoice or voucher by number never asks for dates.
 - **They only ever get their own company's books,** and only to the number that asked.
+- **Voice notes work** once the AI key is set: the note is transcribed and answered like a typed
+  message, and the reply starts with what the bot heard (_"Danyal ka ledger bhej do"_), so a
+  mishearing is obvious. Without the AI key the bot asks them to type instead.
+- **Roman Urdu or English:** with the AI key set, the bot answers in the language the client wrote
+  (or spoke) in. Names, codes, amounts and dates are always copied exactly from Tijarah.
 
 ### D. Clients creating documents for approval
 

@@ -166,6 +166,18 @@ describe('KnownPartyService against the host chart', () => {
     expect(products.map(p => p.lcode)).toEqual(['001006101']);
   });
 
+  it('suggests the name a Roman Urdu spelling sounds like, exact words first', async () => {
+    const service = await build();
+    // Nobody is called DANIYAAL; the spelling is DANIYAL / DANYAL. Offered, never sent.
+    expect(await service.find(tenant, 'daniyaal')).toEqual({ kind: 'none' });
+    const near = await service.suggest(tenant, 'daniyaal', 'general_ledger', 'party');
+    expect(near.map(p => p.lcode)).toEqual(['0107059', '0104012', '0107160', '0107015']);
+    expect((await service.suggest(tenant, 'khuzaima', 'general_ledger', 'party')).map(p => p.lcode)).toEqual([
+      '0106015',
+    ]);
+    expect((await service.suggest(tenant, 'ahmad', 'general_ledger', 'party')).map(p => p.lcode)).toEqual(['0107028']);
+  });
+
   it('suggests nothing for words too short or too generic to mean anything', async () => {
     const service = await build();
     expect(await service.suggest(tenant, 'ka ledger', 'general_ledger', 'party')).toEqual([]);

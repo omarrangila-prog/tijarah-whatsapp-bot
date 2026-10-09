@@ -22,6 +22,7 @@ import { PermissionGuard } from '../../integrations/whatsapp/permission-guard';
 import { MediaHandler } from '../../integrations/whatsapp/media-handler';
 import { SessionManager } from '../../integrations/whatsapp/session-manager';
 import { WhatsAppGateway } from '../../integrations/whatsapp/whatsapp.gateway';
+import { VoiceTranscriber } from '../../integrations/whatsapp/voice-transcriber';
 import { OpenWaProvider } from '../../integrations/whatsapp/openwa.provider';
 import { MockWhatsAppProvider } from '../../integrations/whatsapp/mock.provider';
 import { WHATSAPP_PROVIDER } from '../../integrations/whatsapp/whatsapp-provider.interface';
@@ -78,6 +79,7 @@ import { LEDGER_PORT } from '../../integrations/ledger/ledger.port';
     MediaHandler,
     SessionManager,
     WhatsAppGateway,
+    VoiceTranscriber,
     GeminiReasoningProvider,
     OpenAiCompatibleReasoningProvider,
     MockReasoningProvider,

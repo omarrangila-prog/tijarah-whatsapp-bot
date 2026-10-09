@@ -1,4 +1,12 @@
-import { matchParty, normaliseName, scoreName, type PartyCandidate } from './party-match';
+import {
+  editDistance,
+  matchParty,
+  normaliseName,
+  scoreName,
+  soundKey,
+  wordSimilarity,
+  type PartyCandidate,
+} from './party-match';
 
 const party = (name: string, phone: string, lcode: string | null = null): PartyCandidate => ({ name, phone, lcode });
 
@@ -97,5 +105,46 @@ describe('matchParty', () => {
   it('is empty-safe', () => {
     expect(matchParty('danyal', [])).toEqual({ kind: 'none' });
     expect(matchParty('', [DANYAL])).toEqual({ kind: 'none' });
+  });
+});
+
+describe('Roman Urdu spellings of one name', () => {
+  it.each([
+    ['daniyal', 'DANYAL'],
+    ['daniyaal', 'Danyal'],
+    ['mohammad', 'MUHAMMAD'],
+    ['mohammed', 'Muhammad'],
+    ['rahman', 'REHMAN'],
+    ['khuzaima', 'KHUZEMA'],
+    ['usman', 'OSMAN'],
+    ['ahmad', 'AHMED'],
+    ['husain', 'HUSSAIN'],
+    ['courier', 'CURRIER'],
+    ['faysal', 'FAISAL'],
+    ['stationery', 'STATIONARY'],
+  ])('%s sounds like %s', (typed, name) => {
+    expect(soundKey(typed)).toBe(soundKey(name));
+    expect(wordSimilarity(typed, name)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('reads the usual abbreviation for Muhammad as the name itself', () => {
+    expect(wordSimilarity('mohd', 'MUHAMMAD')).toBe(3);
+    expect(wordSimilarity('md', 'MOHAMMAD')).toBe(2);
+  });
+
+  it('allows one typo in a short word and two in a long one', () => {
+    expect(wordSimilarity('kazni', 'KAZMI')).toBe(1);
+    expect(wordSimilarity('tradevibe', 'TRADEVIVE')).toBeGreaterThan(0);
+    expect(editDistance('cosmetics', 'cosmetix')).toBe(2);
+  });
+
+  it.each([
+    ['ali', 'ADI'],
+    ['ali', 'ALIF'],
+    ['kazmi', 'KHAN'],
+    ['shahrukh', 'SHAHID'],
+    ['latif', 'LATIFA TRADERS INTERNATIONAL'],
+  ])('%s is NOT taken for %s', (typed, name) => {
+    expect(wordSimilarity(typed, name)).toBe(0);
   });
 });

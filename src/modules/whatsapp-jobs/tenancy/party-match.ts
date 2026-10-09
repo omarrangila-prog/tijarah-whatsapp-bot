@@ -99,3 +99,75 @@ export function matchParty(query: string, candidates: PartyCandidate[]): PartyMa
   }
   return { kind: 'several', parties: top };
 }
+
+/**
+ * Abbreviations people type for whole names. Expanded before comparing, so "mohd ali" can be
+ * offered MUHAMMAD ALI. Only unambiguous ones: a lone "m" or "sh" could be many names.
+ */
+const NAME_ABBREVIATIONS: Record<string, string> = {
+  mohd: 'muhammad',
+  muhd: 'muhammad',
+  mhd: 'muhammad',
+  md: 'muhammad',
+  abd: 'abdul',
+};
+
+/**
+ * How a Roman Urdu word sounds, as a comparison key.
+ *
+ * The same name reaches the bot spelled many ways — DANYAL / daniyal / daniyaal, MUHAMMAD /
+ * mohammad / mohammed, REHMAN / rahman, KHUZEMA / khuzaima, CURRIER / courier. They differ in
+ * vowels, doubled letters and a few letter pairs, so the key keeps the first sound (any leading
+ * vowel counts as one), folds the interchangeable letters (ph/f, q/k, v/w), squeezes doubles and
+ * drops the vowels after the first letter.
+ */
+export function soundKey(word: string): string {
+  let w = normaliseName(word).replace(/[^a-z]/g, '');
+  w = NAME_ABBREVIATIONS[w] ?? w;
+  if (w.length < 3) return w;
+  w = w
+    .replace(/ph/g, 'f')
+    .replace(/ck/g, 'k')
+    .replace(/q/g, 'k')
+    .replace(/v/g, 'w')
+    .replace(/(.)\1+/g, '$1');
+  const lead = /^[aeiouy]/.test(w) ? 'a' : w[0];
+  return lead + w.slice(1).replace(/[aeiouy]/g, '');
+}
+
+/** Levenshtein distance, giving up (returning limit + 1) once it is clearly beyond `limit`. */
+export function editDistance(a: string, b: string, limit = 3): number {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+      best = Math.min(best, current[j]);
+    }
+    if (best > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+/**
+ * How closely one typed word matches one word of a name: 3 the same word, 2 the same sound
+ * (a Roman Urdu spelling variant), 1 a typo away, 0 different.
+ *
+ * Used only to SUGGEST names when nothing matched outright — a suggestion is a question the
+ * person answers, never a ledger sent on a guess. Short words must match exactly: at three
+ * letters, "ali" and "adi" are different people, not a typo.
+ */
+export function wordSimilarity(typed: string, name: string): number {
+  const a = NAME_ABBREVIATIONS[normaliseName(typed)] ?? normaliseName(typed);
+  const b = normaliseName(name);
+  if (!a || !b) return 0;
+  if (a === b) return 3;
+  if (a.length < 4 || b.length < 4) return 0;
+  if (soundKey(a) === soundKey(b)) return 2;
+  const allowed = Math.min(a.length, b.length) >= 7 ? 2 : 1;
+  return editDistance(a, b, allowed) <= allowed ? 1 : 0;
+}

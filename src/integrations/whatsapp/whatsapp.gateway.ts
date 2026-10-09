@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { createLogger } from '../../common/services/logger.service';
 import { AgentRuntime } from '../../modules/agent/agent-runtime.service';
 import { ContactMapper } from './contact-mapper';
 import { MediaHandler } from './media-handler';
+import { VoiceTranscriber } from './voice-transcriber';
 import { normalizeInbound, type EngineInboundMessage } from './message-normalizer';
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from './whatsapp-provider.interface';
 import type { AgentSystemEvent, NormalizedAgentMessage } from './agent-message.types';
@@ -29,6 +30,7 @@ export class WhatsAppGateway {
     private readonly contacts: ContactMapper,
     private readonly media: MediaHandler,
     @Inject(WHATSAPP_PROVIDER) private readonly provider: WhatsAppProvider,
+    @Optional() private readonly transcriber?: VoiceTranscriber,
   ) {}
 
   /**
@@ -67,11 +69,30 @@ export class WhatsAppGateway {
         }
       }
 
+      /*
+       * A voice note is answered like a typed message: transcribed first, then handed to the
+       * runtime with the words as its text. The reply quotes what was heard, so a mishearing is
+       * visible at once instead of becoming a wrong ledger. Without a transcriber, or when it
+       * fails, the runtime's own "cannot read voice notes" reply still applies.
+       */
+      let heard: string | null = null;
+      if (message.messageType === 'audio' && !message.text.trim() && this.transcriber?.isConfigured()) {
+        const media = (raw as { media?: { data?: string; mimetype?: string; omitted?: boolean } }).media;
+        if (media?.data && !media.omitted) {
+          heard = await this.transcriber.transcribe(
+            media.data,
+            media.mimetype ?? message.attachments[0]?.mimeType ?? null,
+          );
+          if (heard) message.text = heard;
+        }
+      }
+
       const result = await this.runtime.handle(message);
       if (!result.shouldReply) return { replied: false, text: null };
 
-      await this.reply(message, result.text);
-      return { replied: true, text: result.text };
+      const text = heard ? `_"${heard}"_\n\n${result.text}` : result.text;
+      await this.reply(message, text);
+      return { replied: true, text };
     } catch (error) {
       // Fail open. The projector's contract is that a business rule cannot cost a message.
       this.logger.error(`agent gateway failed: ${(error as Error).message}`);

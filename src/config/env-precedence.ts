@@ -32,6 +32,12 @@ export const BLANK_SHADOWED_ENV_KEYS: string[] = [
   'AI_API_KEY',
   'AI_MODEL',
   'AI_BASE_URL',
+  // Voice-note transcription; blank-forwarded by compose like the AI keys above.
+  'TRANSCRIBE_ENABLED',
+  'TRANSCRIBE_BASE_URL',
+  'TRANSCRIBE_API_KEY',
+  'TRANSCRIBE_MODEL',
+  'TRANSCRIBE_LANGUAGE',
   // WhatsApp agent channel + accounting ledger. Blank-forwarded by compose when the operator
   // has not set them, so the blank must be cleared before the file layers merge — otherwise
   // an unset compose var shadows a value the operator did put in .env, and the agent silently

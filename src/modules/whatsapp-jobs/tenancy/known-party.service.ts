@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KnownParty } from './known-party.entity';
-import { matchParty, normaliseName, type PartyCandidate, type PartyMatch } from './party-match';
+import { matchParty, normaliseName, wordSimilarity, type PartyCandidate, type PartyMatch } from './party-match';
 import { actHeadForLedger } from './account-kind';
 import { normalizeWhatsAppNumber } from '../providers/whatsapp-delivery.provider';
 // A VALUE import, not `import type`: Nest reads the constructor's emitted design:paramtypes to
@@ -112,10 +112,10 @@ export class KnownPartyService {
   }
 
   /**
-   * Near names for one that matched nothing: accounts (or items) sharing any whole word with
-   * what was typed. "khuzema ahmed" found nobody — the account is KHUZEMA TRADEVIVE — and a
-   * flat "could not find" left the person guessing. A shortlist to choose from is never a
-   * guess: nothing is sent until they pick one.
+   * Near names for one that matched nothing, best first: names sharing a word with what was
+   * typed, then names that SOUND the same in Roman Urdu ("daniyal" → DANYAL BHAI, "khuzaima" →
+   * KHUZEMA TRADEVIVE, "mohd" → MUHAMMAD), then names a typo away ("stationery" → STATIONARY).
+   * A shortlist to choose from is never a guess: nothing is sent until they pick one.
    */
   async suggest(
     tenant: TenantContext,
@@ -131,12 +131,24 @@ export class KnownPartyService {
       kind === 'item'
         ? (await this.users.fetchItems(tenant)).map(i => ({ name: i.name.trim(), phone: '', lcode: i.icode }))
         : await this.hostCandidates(tenant, documentType);
-    return pool
-      .filter(candidate => {
-        const name = normaliseName(candidate.name).split(' ');
-        return words.some(word => name.includes(word));
-      })
-      .slice(0, 5);
+    return (
+      pool
+        .map(candidate => {
+          const nameWords = normaliseName(candidate.name).split(' ');
+          const perWord = words.map(word => Math.max(0, ...nameWords.map(nameWord => wordSimilarity(word, nameWord))));
+          const matched = perWord.filter(score => score > 0);
+          // Every typed word found outranks a partial match, however strong its single word.
+          const score = matched.length
+            ? matched.reduce((sum, s) => sum + s, 0) + (matched.length === words.length ? 10 : 0)
+            : 0;
+          return { candidate, score };
+        })
+        .filter(entry => entry.score > 0)
+        // Stable sort: equal scores keep the host's own order.
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map(entry => entry.candidate)
+    );
   }
 
   /** Every customer known in this company's books. */

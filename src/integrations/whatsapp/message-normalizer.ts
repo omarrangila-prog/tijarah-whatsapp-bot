@@ -34,6 +34,8 @@ const MEDIA_TYPES: Record<string, AgentMessageType> = {
   document: 'document',
   audio: 'audio',
   ptt: 'audio',
+  // Both engines type a recorded voice note as 'voice'. Without this it read as an empty TEXT message.
+  voice: 'audio',
   video: 'video',
   location: 'location',
 };
