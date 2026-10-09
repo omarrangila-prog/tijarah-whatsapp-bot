@@ -278,6 +278,13 @@ Tell your clients:
 - **Voice notes work** once the AI key is set: the note is transcribed and answered like a typed
   message, and the reply starts with what the bot heard (_"Danyal ka ledger bhej do"_), so a
   mishearing is obvious. Without the AI key the bot asks them to type instead.
+- **Conversation is answered, not met with a list:** _salam_ gets _Wa alaikum assalam_, _shukriya_ /
+  _ok_ / _haan bhai_ a short reply, _menu dikhao_ or _?_ the menu, _report chahiye_ the report list.
+  A client who writes Roman Urdu gets the menu and the "did not understand" reply in Roman Urdu. If
+  the bot offered one name (_"Did you mean DANYAL BHAI?"_), _haan_ / _ji_ / _yes_ picks it; an _ok_ in
+  the middle of a question gets the question again.
+- **Spelling mistakes are understood:** _legder_, _purchse invoice 122_, _recive voucher_, _tb_, _nafa
+  nuqsan_, _kharcha report_, _aaj ki sale_ and the like are read as meant — no AI needed.
 - **Roman Urdu or English:** with the AI key set, the bot answers in the language the client wrote
   (or spoke) in. Names, codes, amounts and dates are always copied exactly from Tijarah.
 

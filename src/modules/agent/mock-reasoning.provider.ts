@@ -352,6 +352,23 @@ export class MockReasoningProvider implements ReasoningProvider {
       default:
         // A Tijarah client is not shown the operator's command list — none of it is theirs.
         if (role === 'client') {
+          // In the client's language: most write Roman Urdu, and an English apology to them read as a wall.
+          if (isRomanUrdu(text)) {
+            return this.finish(
+              [
+                'Maaf kijiye, yeh samajh nahi aaya. Main yeh kar sakta hoon:',
+                '',
+                ...rootOptionLines(true),
+                '',
+                'Bas 1, 2 ya 3 bhej dein.',
+                '',
+                'Ya apne alfaaz mein likhein, jaise:',
+                '• _Danyal ka ledger_',
+                '• _trial balance_',
+                '• _invoice 179_',
+              ].join('\n'),
+            );
+          }
           return this.finish(
             [
               'Sorry, I did not understand that. Here is what I can do:',
@@ -483,7 +500,7 @@ const CREATE_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
  */
 import { parsePartyCode, parsePeriod } from './period-parse';
 import { fuzzyReport, REPORT_WORD_SETS } from './fuzzy-report';
-import { documentNumberPrompt, isChitChat, rootOptionLines } from './client-menu';
+import { documentNumberPrompt, isChitChat, isRomanUrdu, rootOptionLines } from './client-menu';
 
 /**
  * A party named in a ledger request, e.g. "Anas Boltan ka ledger bhejo" → "Anas Boltan".
@@ -742,7 +759,12 @@ export function detectIntent(text: string): Intent {
   if (/\b(submit|send for approval|approve it|finalis|finaliz)\b/.test(lower)) {
     return { kind: 'create_submit' };
   }
-  if (/\b(create|make|new|raise|add)\b/.test(lower)) {
+  // Roman Urdu too: "invoice bana do 15000 ka", "bill kaat do", "voucher banao".
+  if (
+    /\b(create|make|new|raise|add|bana|banao|banado|bana\s+do|bana\s+dein|bana\s+den|bnado|bnao|bna\s+do|kaat\s+do|kat\s+do|kaato|kato|tayyar\s+karo)\b/.test(
+      lower,
+    )
+  ) {
     for (const [pattern, documentType] of CREATE_WORDS) {
       if (pattern.test(lower)) return { kind: 'create_start', documentType };
     }

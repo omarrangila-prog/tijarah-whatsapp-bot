@@ -110,9 +110,9 @@ const tagged = (message: string, step: string): boolean =>
  * bot to ask who before sending, not to decide on their behalf that it meant everyone.
  */
 const ROOT_OPTIONS = [
-  { label: 'Who owes me money', documentType: 'customer_ledger' },
-  { label: 'Send me a report', documentType: null },
-  { label: 'Get an invoice or voucher', documentType: null },
+  { label: 'Who owes me money', roman: 'Kis ne paise dene hain', documentType: 'customer_ledger' },
+  { label: 'Send me a report', roman: 'Koi report bhejein', documentType: null },
+  { label: 'Get an invoice or voucher', roman: 'Invoice ya voucher mangwaein', documentType: null },
 ] as const;
 
 /**
@@ -122,8 +122,8 @@ const ROOT_OPTIONS = [
  * "Make a new invoice or voucher" while sending 3 actually asked for an invoice NUMBER — the
  * same digit promising one thing and doing another.
  */
-export function rootOptionLines(): string[] {
-  return ROOT_OPTIONS.map((o, i) => `${i + 1}.  ${o.label}`);
+export function rootOptionLines(roman = false): string[] {
+  return ROOT_OPTIONS.map((o, i) => `${i + 1}.  ${roman ? o.roman : o.label}`);
 }
 
 /**
@@ -172,12 +172,135 @@ export function orderReports(reports: MenuReport[]): MenuReport[] {
  * Numbered rather than keyword-driven because a reply of "2" cannot be misspelled, and
  * because it tells a new client what the bot can do without them having to know first.
  */
-export function rootMenu(businessName = 'Tijarah Books'): string {
-  const lines = rootOptionLines();
+export function rootMenu(businessName = 'Tijarah Books', options: { roman?: boolean; greeting?: string } = {}): string {
+  const lines = rootOptionLines(options.roman);
+  if (options.roman) {
+    return (
+      `${options.greeting ?? `Assalam o alaikum! Yeh *${businessName}* hai.`}\n\nAap ko kya chahiye?\n\n${lines.join('\n')}\n\n` +
+      `Bas 1, 2 ya 3 bhej dein.\nYa apne alfaaz mein likhein, jaise _trial balance_ ya _Danyal ka ledger_.${TAGS.root}`
+    );
+  }
   return (
-    `Hello! This is *${businessName}*.\n\nWhat do you need?\n\n${lines.join('\n')}\n\n` +
+    `${options.greeting ?? `Hello! This is *${businessName}*.`}\n\nWhat do you need?\n\n${lines.join('\n')}\n\n` +
     `Just send 1, 2 or 3.\nOr type what you want, like _trial balance_.${TAGS.root}`
   );
+}
+
+/**
+ * Roman Urdu (Urdu written in English letters) rather than English, from its everyday words.
+ * Decides only the language of the bot's own fixed replies; nothing is read differently.
+ */
+export function isRomanUrdu(text: string): boolean {
+  return /\b(ka|ki|ke|hai|hain|hy|bhai|bhi|bhejo|bhej|bhejein|bhj\w*|bhij\w*|bhejd\w*|dein|den|do|de|kya|kia|kaise|kese|kaisay|mujhe|mujhy|mera|meri|chahiye|chahye|chahie|nahi|nhi|haan|han|theek|thik|shukriya|jazak\w*|aaj|kal|wala|wali|karo|kar|dena|yaar|ji|jee|acha|achha|salam\w*|assalam\w*|asalam\w*|aoa|haal|ho|dikhao|batao|sakte|skty)\b/i.test(
+    text,
+  );
+}
+
+/** "Haan", "ji", "yes", "ok", "theek hai" — agreement, answering a yes/no question. */
+export function isYes(text: string): boolean {
+  return /^\s*(?:ha+n?|haa+n|han\s*ji|ji\s*haan|haan\s*ji|ji+|jee|g|yes|yeah|yep|yup|y|ok|okay|theek|thik|sahi|correct|yahi|wohi|bilkul|right)(?:\s+(?:bhai|ji|jee|yaar|hai|he|hy|sir|please|plz))*\s*[!.]*\s*$/i.test(
+    text,
+  );
+}
+
+export type SmallTalk =
+  { kind: 'menu'; greeting?: string; roman: boolean } | { kind: 'reports' } | { kind: 'say'; text: string };
+
+/**
+ * Conversation rather than a request, answered the way a person at the counter would.
+ *
+ * Without this, "shukriya", "ok", "Salamalykum", "kya haal hai" and "menu dikhao" all got
+ * "Sorry, I did not understand that" and the whole list — on live chats, again and again. Only
+ * whole messages that are clearly conversation are answered here; anything with a request in it
+ * goes on to be read as one.
+ */
+export function smallTalk(text: string): SmallTalk | null {
+  const t = text
+    .trim()
+    .toLowerCase()
+    .replace(/[!.,?؟]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const roman = isRomanUrdu(text);
+  if (/^[?؟]+$/.test(text.trim())) return { kind: 'menu', roman };
+  if (!t) return null;
+
+  if (
+    /^(?:a?s+a?la+m\w*|salam\w*|slam\w*|aoa|asak|salamalykum|salamalaikum)(?:\s+(?:o|u|w|wa|alaikum|alaykum|alykum|alikum|aleikum|walaikum|bhai|ji|sir|yaar))*$/.test(
+      t,
+    )
+  ) {
+    return { kind: 'menu', roman: true, greeting: 'Wa alaikum assalam!' };
+  }
+  if (
+    /^(?:(?:aur\s+)?(?:kya|kia)\s+haal\s+(?:hai|hain|he|hy)|(?:aap\s+)?(?:kaise|kese|kaisay|kesy)\s+(?:ho|hain|hen)|how\s+are\s+you|how\s+r\s+u)(?:\s+(?:bhai|ji|sir|yaar))*$/.test(
+      t,
+    )
+  ) {
+    return roman
+      ? { kind: 'menu', roman: true, greeting: 'Alhamdulillah, theek hoon! Bataiye kya chahiye:' }
+      : { kind: 'menu', roman: false, greeting: "I'm well, thank you! What can I get you?" };
+  }
+  if (
+    /^(?:menu|options?|list)\s+(?:dikhao|dikhaen|dikhayein|bhejo|bhejein|do|de|please|plz)$|^(?:kya|kia)\s+(?:kar|kr)\s+(?:sakte|skty|sakty|sakta)\s+(?:ho|hain|hen)$|^what\s+can\s+you\s+do$|^help\s+me$|^(?:madad|help)\s+(?:chahiye|karo|kardo|kar\s+do)$/.test(
+      t,
+    )
+  ) {
+    return { kind: 'menu', roman };
+  }
+  if (
+    /^(?:send(?:\s+me)?|bhejo|mujhe|please|plz)?\s*(?:the\s+|my\s+)?(?:docs?|documents?)(?:\s+(?:bhejo|bhejein|chahiye|please|plz))*$/.test(
+      t,
+    )
+  ) {
+    return { kind: 'menu', roman };
+  }
+  if (
+    /^(?:(?:mujhe|mujhy|koi|sab|saari|all|send|send\s+me|please|plz)\s+)?(?:the\s+)?reports?(?:\s+(?:chahiye|chahye|chahie|bhejo|bhejein|bhej\s+do|dikhao|do|de|list|please|plz))*$/.test(
+      t,
+    )
+  ) {
+    return { kind: 'reports' };
+  }
+  if (/^\d{1,2}(?:\s*[,،/&+]\s*\d{1,2}|\s+and\s+\d{1,2})+$/.test(t)) {
+    return {
+      kind: 'menu',
+      roman,
+      greeting: roman ? 'Ek waqt mein ek hi number bhej dein:' : 'Please send one number at a time:',
+    };
+  }
+  if (
+    /^(?:thanks?|thank\s+you|thx|ty|shukriya|shukria|jazak\s*allah\w*|jazakallah\w*|jzk|meherbani|mehrbani)(?:\s+(?:bhai|ji|jee|sir|yaar|so\s+much|very\s+much|a\s+lot|bohat|bahut))*$/.test(
+      t,
+    )
+  ) {
+    return {
+      kind: 'say',
+      text:
+        roman || /shukri|jazak|jzk|meherb|mehrb/.test(t)
+          ? 'Aap ka bhi shukriya! Kuch aur chahiye ho to *menu* likh dein.'
+          : "You're welcome! Send *menu* whenever you need something.",
+    };
+  }
+  if (
+    isChitChat(t) &&
+    /\b(?:ok|okay|k|kk|theek|thik|acha|achha|accha|done|sure|right|haan|han|ha|ji|jee|g|yes|yeah|alright|fine|noted|great|good|nice)\b/.test(
+      t,
+    )
+  ) {
+    return {
+      kind: 'say',
+      text: roman ? 'Ji! Kuch aur chahiye ho to *menu* likh dein.' : 'Okay! Send *menu* whenever you need something.',
+    };
+  }
+  if (
+    /\b(?:bsdk|bc|mc|bkl|chutiya|chutiye|harami|haramzada|kutta|kutte|gandu|madarchod|behenchod|bhenchod|fuck|idiot|stupid|bewakoof|ullu)\b/.test(
+      t,
+    )
+  ) {
+    return { kind: 'say', text: 'Main aap ki madad ke liye hoon. Jo chahiye likh dein, ya *menu* likh kar dekh lein.' };
+  }
+  return null;
 }
 
 /**

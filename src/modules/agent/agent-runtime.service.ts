@@ -43,7 +43,11 @@ import {
   awaitedPartyPeriod,
   documentNumberPrompt,
   isChitChat,
+  isRomanUrdu,
+  isYes,
   readDocumentNumber,
+  reportMenu,
+  smallTalk,
   voucherPick,
   MENU_TRIGGER,
   readChoice,
@@ -344,7 +348,12 @@ export class AgentRuntime {
     const reports = await this.menuReports();
     if (reports.length === 0) return null;
 
-    if (MENU_TRIGGER.test(text)) return rootMenu();
+    if (MENU_TRIGGER.test(text)) {
+      // "salam" gets "Wa alaikum assalam"; a Roman Urdu greeting gets the menu in Roman Urdu.
+      const talk = smallTalk(text);
+      if (talk?.kind === 'menu') return rootMenu(undefined, { roman: talk.roman, greeting: talk.greeting });
+      return rootMenu(undefined, { roman: isRomanUrdu(text) });
+    }
 
     const last = await this.turns.findOne({
       where: { senderPhone: message.senderPhone },
@@ -382,6 +391,20 @@ export class AgentRuntime {
           ? this.runPartyLedger(message, ledgerForKind(accountKind(option.code)), option.name, option.code, period)
           : this.runPartyLedger(message, 'general_ledger', option.name, undefined, period);
       }
+    }
+
+    /*
+     * "Haan" / "ji" / "yes" to a list of ONE — "Did you mean DANYAL BHAI?" — is that one. Asking
+     * for the number of the only option made a yes a dead end.
+     */
+    if (shortlist && shortlist.options.length === 1 && isYes(text)) {
+      const only = shortlist.options[0];
+      const period = awaitedPartyPeriod(last?.replyText ?? null);
+      if (shortlist.ledger === 'item_ledger' || only.item)
+        return this.runItemLedger(message, only.name, only.code, period);
+      return only.code
+        ? this.runPartyLedger(message, ledgerForKind(accountKind(only.code)), only.name, only.code, period)
+        : this.runPartyLedger(message, 'general_ledger', only.name, undefined, period);
     }
 
     /*
@@ -424,7 +447,25 @@ export class AgentRuntime {
       return this.runPartyLedger(message, awaited, text, undefined, period);
     }
 
-    const action = advance(stepFor(last?.replyText ?? null), text, reports);
+    /*
+     * "ok" or "haan bhai" while a question is open — which customer, which number, which dates —
+     * gets the question again, rather than the "did not understand" list that lost the thread.
+     */
+    const step = stepFor(last?.replyText ?? null);
+    const questionOpen =
+      Boolean(shortlist || awaited || awaitedDoc) || step?.kind === 'period' || step?.kind === 'dates';
+    if (questionOpen && isChitChat(text) && last?.replyText) return last.replyText;
+
+    /*
+     * Conversation — thanks, ok, salam, "kya haal hai", "menu dikhao", "report chahiye" — answered
+     * briefly, in the client's own language, instead of with "did not understand".
+     */
+    const talk = smallTalk(text);
+    if (talk?.kind === 'menu') return rootMenu(undefined, { roman: talk.roman, greeting: talk.greeting });
+    if (talk?.kind === 'reports') return reportMenu(reports);
+    if (talk?.kind === 'say') return talk.text;
+
+    const action = advance(step, text, reports);
 
     if (action.kind === 'none') return null;
     if (action.kind === 'show') return action.text;
