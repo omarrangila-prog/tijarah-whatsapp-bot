@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AiCompletionRequest, AiProvider } from './ai-provider.interface';
+import { anthropicBaseUrl } from '../../agent/ai-base-url';
 import type {
   ReasoningProvider,
   ReasoningRequest,
@@ -104,7 +105,8 @@ export class AnthropicAiProvider implements AiProvider, ReasoningProvider {
     if (!this.client) {
       const apiKey = this.apiKey;
       if (!apiKey) throw new Error('Anthropic provider is not configured');
-      const baseURL = this.config.get<string>('ai.baseUrl');
+      // Without a trailing /v1: the SDK adds its own, and "/v1/v1/messages" is a 404.
+      const baseURL = anthropicBaseUrl(this.config.get<string>('ai.baseUrl'));
       this.client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
     }
     return this.client;

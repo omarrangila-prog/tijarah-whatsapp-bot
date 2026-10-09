@@ -57,6 +57,7 @@ import {
 } from './client-menu';
 import { toJsonSchema } from './zod-to-json-schema';
 import { detectIntent } from './mock-reasoning.provider';
+import { correctSpelling } from './spelling';
 import { accountKind, ledgerForKind } from '../whatsapp-jobs/tenancy/account-kind';
 
 /**
@@ -671,8 +672,20 @@ export class AgentRuntime {
     return this.cachedRegistry;
   }
 
-  private pickProvider(): ReasoningProvider | null {
-    return this.availableProviders()[0] ?? null;
+  /**
+   * The providers for this message, most preferred first.
+   *
+   * A client's request that the rules read with certainty — a document by number, a named report —
+   * is answered by the rules even when a model is configured. Replayed on the clients' own
+   * misspellings, the model sent SALE invoice 22 for "digital invoce 22" and read "sale retrun 5"
+   * as a request to create one; the rules, tested on every real chat, got both right. The model
+   * keeps everything the rules cannot read: conversation, questions, long or unusual messages.
+   */
+  private providersForTurn(message: NormalizedAgentMessage): ReasoningProvider[] {
+    const available = this.availableProviders();
+    const rules = available.find(provider => provider.id === 'mock');
+    if (!rules || available[0] === rules || message.senderRole !== 'client') return available;
+    return rulesAreSure(message.text ?? '') ? [rules] : available;
   }
 
   /** Every configured provider that could host a turn, most preferred first. */
@@ -734,8 +747,8 @@ export class AgentRuntime {
 
   private async reasonWithFallback(
     request: Parameters<ReasoningProvider['reason']>[0],
+    candidates: ReasoningProvider[] = this.availableProviders(),
   ): Promise<{ response: Awaited<ReturnType<ReasoningProvider['reason']>>; provider: ReasoningProvider }> {
-    const candidates = this.availableProviders();
     let lastError: Error | null = null;
 
     for (const provider of candidates) {
@@ -894,9 +907,15 @@ export class AgentRuntime {
        * Saying what it can and cannot take is the only useful reply.
        */
       if (!message.text?.trim() && message.messageType !== 'text') {
+        /*
+         * In Roman Urdu, which is how the clients write. A voice note that reaches here could
+         * not be heard (no transcriber, or it failed), so it says that rather than "cannot read".
+         */
         const reply = plain(
-          `I can only read text messages, not ${message.messageType === 'audio' ? 'voice notes' : message.messageType === 'image' ? 'photos' : 'attachments'}. ` +
-            'Please type what you need — for example: "send me the customer ledger for C-1005".',
+          message.messageType === 'audio'
+            ? 'Maaf kijiye, yeh voice note main sun nahi saka. Please likh kar bhej dein, jaise: *Danyal ka ledger bhej do*.'
+            : `Main abhi sirf likha hua message parh sakta hoon, ${message.messageType === 'image' ? 'tasveer' : 'attachment'} nahi. ` +
+                'Please likh kar bhej dein, jaise: *Danyal ka ledger bhej do*.',
         );
         return await this.finish(record, reply, 'ok', `Unreadable ${message.messageType}`, startedAt);
       }
@@ -957,7 +976,8 @@ export class AgentRuntime {
     restrictTools: boolean,
     record: AgentTurn,
   ): Promise<AgentReply> {
-    const provider = this.pickProvider();
+    const candidates = this.providersForTurn(message);
+    const provider = candidates[0] ?? null;
     if (!provider) {
       record.outcome = 'error';
       record.outcomeDetail = 'No reasoning provider is available.';
@@ -984,28 +1004,33 @@ export class AgentRuntime {
     let pendingApprovalId: string | null = null;
     let usedProvider: ReasoningProvider = provider;
     let finalText = '';
+    // A question the report tool asked ("Which customer?", a numbered list, which dates).
+    let toolQuestion: string | null = null;
     let inputTokens = 0;
     let outputTokens = 0;
 
     for (let step = 0; step < MAX_STEPS; step += 1) {
-      const { response, provider: answered } = await this.reasonWithFallback({
-        system: buildSystemPrompt({
-          senderRole: message.senderRole,
-          senderName: message.senderName,
-          nonce,
-          restricted: restrictTools,
-          openDraft: draftSummary,
-        }),
-        messages: history,
-        tools: offered.map(toReasoningTool),
-        context: {
-          senderRole: message.senderRole,
-          // Resolved lazily: DraftService lives in the jobs module, and eager injection here
-          // would pull that graph into this constructor.
-          hasOpenDraft: await this.hasOpenDraft(message.senderPhone),
-          openDraftSummary: draftSummary,
+      const { response, provider: answered } = await this.reasonWithFallback(
+        {
+          system: buildSystemPrompt({
+            senderRole: message.senderRole,
+            senderName: message.senderName,
+            nonce,
+            restricted: restrictTools,
+            openDraft: draftSummary,
+          }),
+          messages: history,
+          tools: offered.map(toReasoningTool),
+          context: {
+            senderRole: message.senderRole,
+            // Resolved lazily: DraftService lives in the jobs module, and eager injection here
+            // would pull that graph into this constructor.
+            hasOpenDraft: await this.hasOpenDraft(message.senderPhone),
+            openDraftSummary: draftSummary,
+          },
         },
-      });
+        candidates,
+      );
 
       // Recorded from whichever provider actually answered, not the one first preferred.
       usedProvider = answered;
@@ -1021,6 +1046,7 @@ export class AgentRuntime {
         const outcome = await this.executeCall(call, message, offered);
         actions.push(outcome.record);
         if (outcome.approvalId) pendingApprovalId = outcome.approvalId;
+        if (call.name === 'RequestAccountingReport') toolQuestion = reportQuestion(outcome.content);
         history.push({
           role: 'tool',
           toolCallId: call.id,
@@ -1028,6 +1054,16 @@ export class AgentRuntime {
           isError: outcome.isError,
         });
       }
+
+      /*
+       * The tool's own question is the reply, word for word.
+       *
+       * A model rephrased "I found a few accounts called KHUZ. Which one? 1. … 2. …" into its own
+       * sentence, and the "2" that answered it then matched nothing: the menu reads the choice
+       * back out of the bot's last message, in the tool's wording. Stopping here also saves the
+       * model a round trip that could only restate the question.
+       */
+      if (toolQuestion) break;
     }
 
     record.actions = actions;
@@ -1047,7 +1083,8 @@ export class AgentRuntime {
      * else with nothing to say still falls back, because silence there would look broken.
      */
     const queuedADocument = actions.some(a => a.tool === 'RequestAccountingReport' && a.decision === 'allowed');
-    const text = finalText || (queuedADocument ? '' : 'Done.');
+    const said = toolQuestion ? '' : await this.inRomanLetters(whatsAppText(finalText), usedProvider);
+    const text = toolQuestion ?? (said || (queuedADocument ? '' : 'Done.'));
 
     return {
       text,
@@ -1208,6 +1245,33 @@ export class AgentRuntime {
         isError: true,
         approvalId: null,
       };
+    }
+  }
+
+  /**
+   * A reply with Hindi letters in it, rewritten in English letters.
+   *
+   * Asked for Roman Urdu, a model now and then drifts into Devanagari mid-word — "ledger
+   * bheजने ke liye" was sent to a client in the first test with a real key. Nobody here reads
+   * that script. One rewrite with no tools offered; if it fails, the reply goes as it was
+   * rather than not at all.
+   */
+  private async inRomanLetters(text: string, provider: ReasoningProvider): Promise<string> {
+    if (!/[\u0900-\u097F]/.test(text)) return text;
+    try {
+      const rewritten = await provider.reason({
+        system:
+          'Rewrite the WhatsApp reply you are given in Roman Urdu, using English letters only. ' +
+          'Keep its meaning, names, numbers and dates exactly. Output only the rewritten reply.',
+        messages: [{ role: 'user', content: text }],
+        tools: [],
+        maxTokens: 600,
+      });
+      const clean = whatsAppText(rewritten.text);
+      return clean && !/[\u0900-\u097F]/.test(clean) ? clean : text;
+    } catch (error) {
+      this.logger.warn(`could not rewrite a reply in Roman letters: ${(error as Error).message.slice(0, 120)}`);
+      return text;
     }
   }
 
@@ -1457,3 +1521,83 @@ function describeToolError(error: unknown): string {
   }
   return (error as Error).message ?? 'Unknown error';
 }
+
+/**
+ * The question in a report tool's answer, when it asked one, or null.
+ *
+ * Only questions: a refusal such as "not a report that can be requested" goes back to the
+ * model, which can pick the right report and try again.
+ */
+export function reportQuestion(content: string): string | null {
+  let row: Record<string, unknown>;
+  try {
+    row = JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (!row || typeof row !== 'object' || row.queued !== false || typeof row.reason !== 'string') return null;
+  const asks =
+    row.needsParty !== undefined ||
+    row.needsPeriod === true ||
+    row.needsDocumentNumber === true ||
+    Array.isArray(row.customers) ||
+    Array.isArray(row.items) ||
+    /Did you mean|Which one\?|check the spelling/i.test(row.reason);
+  return asks && row.reason.trim() ? row.reason : null;
+}
+
+/**
+ * A model's text as WhatsApp shows it: one asterisk is bold there, so "**Total**" arrived with
+ * its asterisks showing, and "# Heading" with its hash.
+ */
+export function whatsAppText(text: string): string {
+  return String(text ?? '')
+    .replace(/\*\*(.+?)\*\*/g, '*$1*')
+    .replace(/__(.+?)__/g, '_$1_')
+    .replace(/^#{1,6}\s+/gm, '')
+    .trim();
+}
+
+/**
+ * Whether the rule-based reader is certain what a client's message asks for.
+ *
+ * Only a short request naming a document or a report: past a dozen words a message is usually
+ * saying something more than its keywords ("the ledger you sent is wrong…"), and that is the
+ * model's to read.
+ */
+export function rulesAreSure(text: string): boolean {
+  if (text.trim().split(/\s+/).length > 12) return false;
+  const intent = detectIntent(text);
+  if (intent.kind === 'document' || intent.kind === 'need_document_number' || intent.kind === 'which_voucher') {
+    return true;
+  }
+  if (intent.kind !== 'report') return false;
+  /*
+   * A report with a word the rules did not place is the model's. "sugar ka stock kitna hai" read
+   * as the whole Stock Summary, the sugar dropped; the model asked for the item ledger of the
+   * one sugar item, which is what was meant. A name the rules DID take is placed.
+   */
+  if (intent.partyName || intent.itemName || intent.partyCode) return true;
+  const unplaced = correctSpelling(text)
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(word => word.length > 2 && !REPORT_WORDS.has(word));
+  return unplaced.length === 0;
+}
+
+/** Words a report request is made of: its name, a period, and the Roman Urdu around them. */
+const REPORT_WORDS = new Set(
+  (
+    'ledger ledgers balance trial sheet statement statements summary stock invoice invoices purchase purchases ' +
+    'receivable receivables payable payables voucher vouchers receive received payment payments expense expenses ' +
+    'customer customers supplier suppliers vendor vendors report reports profit income return returns digital ' +
+    'account accounts general quantity sale sales book cash bank item items loss list book books and the for of ' +
+    'all sab sabhi every everyone complete full total send bhejo bhej bhejdo bhejain bhejein bhejen dein dena ' +
+    'chahiye karo kardo kar dikhao batao bata mujhe mera meri mere hamara apna apni kitna kitni kitne hai hain ' +
+    'kya kia please plz pls today yesterday aaj kal this last month months mahina mahine mahinay week hafta ' +
+    'hafte year saal din days from tak since till upto until now abhi current latest new jan feb mar apr may jun ' +
+    'jul aug sep sept oct nov dec january february march april june july august september october november ' +
+    'december pichle pichla pichli iss khata hisab hisaab nafa nuqsan kharcha show give get need want what how ' +
+    'much many who whose owes owe lena dene paise paisa'
+  ).split(' '),
+);

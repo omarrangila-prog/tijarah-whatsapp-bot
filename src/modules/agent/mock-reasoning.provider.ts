@@ -1063,13 +1063,15 @@ function summariseToolResult(raw: string, isError: boolean): string {
           ? `${name} — account ${code}. Shall I send their ledger?`
           : `${name} is in your books, but I could not confirm their account code. Please tell me the code.`;
       }
-      if (row.found === 'several') {
+      if (row.found === 'several' || row.found === 'similar') {
         const list = Array.isArray(row.customers) ? (row.customers as Array<Record<string, unknown>>) : [];
         const lines = list
           .slice(0, 8)
           .map((c, i) => `${i + 1}. ${str(c.name) ?? '-'}${str(c.partyCode) ? ` (${str(c.partyCode)})` : ''}`)
           .join('\n');
-        return `More than one customer matches. Which one?\n${lines}`;
+        return row.found === 'similar'
+          ? `I could not find that name exactly. Did you mean one of these?\n${lines}`
+          : `More than one customer matches. Which one?\n${lines}`;
       }
       return str(row.reason) ?? 'No customer of that name was found.';
     }

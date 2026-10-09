@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { request } from 'undici';
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '../../common/services/logger.service';
+import { openAiBaseUrl } from './ai-base-url';
 import type {
   ReasoningMessage,
   ReasoningProvider,
@@ -42,9 +43,9 @@ export class OpenAiCompatibleReasoningProvider implements ReasoningProvider {
     return process.env.AI_MODEL?.trim() || null;
   }
 
+  /** A bare host gets `/v1`: see ai-base-url.ts for the gateway that answered with a web page. */
   private get baseUrl(): string | null {
-    const url = process.env.AI_BASE_URL?.trim().replace(/\/+$/, '');
-    return url && url.length > 0 ? url : null;
+    return openAiBaseUrl(process.env.AI_BASE_URL);
   }
 
   private get apiKey(): string | null {
@@ -159,6 +160,15 @@ export class OpenAiCompatibleReasoningProvider implements ReasoningProvider {
        * key, which is a header.
        */
       throw new Error(`${baseUrl} responded ${res.statusCode}: ${text.slice(0, 200)}`);
+    }
+
+    /*
+     * A web page is not an answer. Some gateways serve their site, with a 200, on any path they
+     * do not route — so a wrong base URL looked like a model that returned garbage. Said plainly,
+     * it is fixable from the status screen.
+     */
+    if (/^\s*</.test(text)) {
+      throw new Error(`${baseUrl}/chat/completions returned a web page, not JSON — check AI_BASE_URL`);
     }
 
     const parsed = JSON.parse(text) as {

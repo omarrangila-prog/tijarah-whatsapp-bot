@@ -140,6 +140,15 @@ export function reportRequestTools(deps: ReportRequestToolDeps): AnyToolDescript
 
         const match = await deps.parties().find(tenant, input.name);
         if (match.kind === 'none') {
+          // "khuzaima" for KHUZEMA: the close names, to offer rather than a dead end.
+          const near = await deps.parties().suggest(tenant, input.name, 'general_ledger', 'party');
+          if (near.length) {
+            return {
+              found: 'similar' as const,
+              customers: near.map(p => ({ name: p.name, partyCode: p.lcode })),
+              note: 'Not found as typed. Offer these, numbered, and ask which one is meant. Do not choose.',
+            };
+          }
           return {
             found: 'none' as const,
             // Said plainly, because the next thing the person is asked for is the code.

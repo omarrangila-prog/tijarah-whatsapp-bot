@@ -707,8 +707,9 @@ describe('WhatsApp → agent → WhatsApp', () => {
     });
     expect(result.replied).toBe(true);
     expect(executed).toHaveLength(0);
-    expect(result.text).toMatch(/voice notes/i);
-    expect(result.text).toMatch(/type what you need/i);
+    // In Roman Urdu, as the clients write: it could not hear the note, so it asks for text.
+    expect(result.text).toMatch(/voice note main sun nahi saka/i);
+    expect(result.text).toMatch(/likh kar bhej dein/i);
   });
 
   it('says photos when the attachment is a photo', async () => {
@@ -719,7 +720,7 @@ describe('WhatsApp → agent → WhatsApp', () => {
       type: 'image',
       timestamp: 1756900000,
     });
-    expect(result.text).toMatch(/photos/i);
+    expect(result.text).toMatch(/tasveer nahi/i);
     expect(executed).toHaveLength(0);
   });
 });

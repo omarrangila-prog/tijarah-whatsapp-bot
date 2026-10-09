@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { createLogger } from '../../common/services/logger.service';
+import { openAiBaseUrl } from '../../modules/agent/ai-base-url';
 
 /**
  * Turns a WhatsApp voice note into text, so it can be answered like a typed message.
@@ -20,7 +21,7 @@ export class VoiceTranscriber {
   static readonly MAX_BYTES = 8 * 1024 * 1024;
 
   private settings(): { url: string; key: string; model: string; language: string | null } | null {
-    const url = (process.env.TRANSCRIBE_BASE_URL?.trim() || process.env.AI_BASE_URL?.trim() || '').replace(/\/+$/, '');
+    const url = openAiBaseUrl(process.env.TRANSCRIBE_BASE_URL?.trim() || process.env.AI_BASE_URL) ?? '';
     const key = process.env.TRANSCRIBE_API_KEY?.trim() || process.env.AI_API_KEY?.trim() || '';
     const model = process.env.TRANSCRIBE_MODEL?.trim() || 'whisper-1';
     if (!url || !key || process.env.TRANSCRIBE_ENABLED === 'false') return null;

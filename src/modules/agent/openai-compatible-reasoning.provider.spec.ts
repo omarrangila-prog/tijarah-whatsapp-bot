@@ -269,4 +269,59 @@ describe('an OpenAI-compatible host as the reasoner', () => {
     expect(result.toolCalls).toEqual([]);
     expect(result.finished).toBe(true);
   });
+
+  /* ----------------------------------------------- a gateway's bare host */
+
+  /**
+   * The gateway the client was given answers `/chat/completions` with its own web page and a
+   * 200, and serves the API under `/v1`. Its address was pasted as the bare host — the live bot
+   * then failed every turn on "Unexpected token <" and answered from the rule-based fallback.
+   */
+  function startGateway(): Promise<{ server: Server; root: string; paths: string[] }> {
+    const paths: string[] = [];
+    return new Promise(resolve => {
+      const server = createServer((req, res) => {
+        paths.push(req.url ?? '');
+        req.resume();
+        req.on('end', () => {
+          if (req.url === '/v1/chat/completions') {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(said('Ji, bhej raha hoon.').json));
+            return;
+          }
+          res.writeHead(200, { 'content-type': 'text/html' });
+          res.end('<!doctype html><html><head><title>Gateway</title></head></html>');
+        });
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const { port } = server.address() as { port: number };
+        resolve({ server, root: `http://127.0.0.1:${port}`, paths });
+      });
+    });
+  }
+
+  it('reaches /v1 when the base URL is a bare host', async () => {
+    const gateway = await startGateway();
+    try {
+      configure(gateway.root);
+      const result = await new OpenAiCompatibleReasoningProvider().reason(ask());
+      expect(result.text).toBe('Ji, bhej raha hoon.');
+      expect(gateway.paths).toEqual(['/v1/chat/completions']);
+    } finally {
+      gateway.server.close();
+    }
+  });
+
+  it('says the address is wrong when a host answers with a web page', async () => {
+    const gateway = await startGateway();
+    try {
+      // A path that exists on no API: the gateway serves its site there.
+      configure(`${gateway.root}/api`);
+      await expect(new OpenAiCompatibleReasoningProvider().reason(ask())).rejects.toThrow(
+        /returned a web page, not JSON — check AI_BASE_URL/,
+      );
+    } finally {
+      gateway.server.close();
+    }
+  });
 });
